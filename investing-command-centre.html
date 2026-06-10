@@ -619,7 +619,7 @@ function defaults(){return{
     {name:"NVDA earnings",date:"",time:"21:00",impact:"high",watch:"Your biggest single-stock risk."},
     {name:"MSFT earnings",date:"",time:"21:00",impact:"med",watch:"Cloud + AI capex read."}],
   committee:{models:{ChatGPT:null,Claude:null,Gemini:null,Perplexity:null}},
-  source:"manual", etoroConnected:false, etoroDayPl:null, etoroTotalPl:null,
+  source:"manual", etoroConnected:false, etoroDayPl:null, etoroTotalPl:null, etoroDayPlEst:false, etoroDayPlPct:null, etoroDayPlPartial:false,
   history:[], journal:[],
   alerts:{}, alertState:{}, alertSettings:{cashDrag:true,deploy:true,risk:true,events:true,drift:true,behaviour:true},
   snapshots:{}, lastRefresh:null
@@ -777,6 +777,10 @@ function render(){
   const c=compute();
   $("pv").innerHTML=usd(c.pot)+'<span class="bhd">/ '+bhd(c.pot)+'</span>';
   setPl("dayPl",c.haveDp?c.dayPl:null);
+  if(c.haveDp&&c.dayPl!=null&&S.etoroDayPlEst){
+    const pct=S.etoroDayPlPct!=null?` (${S.etoroDayPlPct>0?'+':''}${S.etoroDayPlPct}%)`:'';
+    $("dayPl").innerHTML+=`<span class="bhd" style="opacity:.7">${pct} est.${S.etoroDayPlPartial?'*':''}</span>`;
+  }
   setPl("totPl",c.invested>0?c.totPl:null);
   $("cashV").innerHTML=dual(c.cash);
   $("cashPc").textContent=c.cashPc.toFixed(1)+"%";
@@ -1209,6 +1213,7 @@ function applyEtoro(j){
   if(Object.keys(nh).length){S.holdings=nh;}
   if(j.availableCashUsd!=null)S.cash=+j.availableCashUsd;
   S.etoroConnected=true;S.etoroDayPl=j.todayPlUsd!=null?+j.todayPlUsd:null;S.etoroTotalPl=j.totalPlUsd!=null?+j.totalPlUsd:null;
+  S.etoroDayPlEst=!!j.todayPlEstimated;S.etoroDayPlPct=j.todayPlPct!=null?+j.todayPlPct:null;S.etoroDayPlPartial=!!j.todayPlPartial;
   Object.keys(S.holdings).forEach(s=>{if(S.targets[s]==null)S.targets[s]=0;});
   S.source="etoro";
 }
