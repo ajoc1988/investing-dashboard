@@ -323,15 +323,12 @@ async function mapEtoroPnl(raw) {
   const cash = n2(cp.credit) || 0;   // 'credit' = funds available for new actions (buying power); bonusCredit excluded
   const cpPnl = cp.unrealizedPnL;
   const totalPl = (cpPnl && typeof cpPnl === 'object') ? n2(cpPnl.pnL ?? cpPnl.pnlAssetCurrency) : n2(cpPnl);
-  const today = await estimateTodayPl(holdings);
-  const out = normalisePortfolio({ holdings, availableCashUsd: cash, totalPlUsd: totalPl, todayPlUsd: today.todayPlUsd });
-  out.todayPlEstimated = today.todayPlUsd != null;        // true → label it "est." in the UI
-  out.todayPlPartial = !!today.partial;                   // some symbols had no live quote
-  out.todayPlCovered = today.covered; out.todayPlTotal = today.total;
-  if (today.todayPlUsd != null) {
-    const prev = (out.portfolioValueUsd || 0) - today.todayPlUsd;
-    out.todayPlPct = prev > 0 ? +((today.todayPlUsd / prev) * 100).toFixed(2) : null;
-  }
+  // NOTE: the free price feed (Finnhub) reported today's per-stock % moves ~9x larger than reality
+  // (it implied a ~1.8% drop when eToro showed the account flat at -0.08%), so estimateTodayPl gives
+  // an untrustworthy figure. Rather than show a wrong number we leave Today P/L blank until it can be
+  // sourced from eToro's own daily change. estimateTodayPl is kept below for when we revisit it.
+  const out = normalisePortfolio({ holdings, availableCashUsd: cash, totalPlUsd: totalPl, todayPlUsd: null });
+  out.todayPlEstimated = false; out.todayPlPartial = false; out.todayPlNote = 'pending accurate source (eToro daily change)';
   return out;
 }
 function normalisePortfolio(p) {
