@@ -263,23 +263,29 @@ async function etoroSymbols(ids) {
   return out;
 }
 // Map eToro clientPortfolio -> our normalised portfolio. Long-only real-asset investor: value = invested + unrealised P/L.
-// Estimate TODAY's P/L from live per-share daily change (Finnhub 'd') × units held, summed.
-// This is an ESTIMATE — eToro's own "today" figure uses its own pricing and fractional shares,
-// so expect it to be within a dollar or two, not penny-exact.
+// Estimate TODAY's P/L from each holding's market value × its live daily % move (Finnhub 'dp').
+// Using value×percent (not units×per-share-change) keeps it scale-independent: eToro's dollar
+// values are reliable, and a percentage can't be thrown off by eToro's unit scaling.
+// Still an ESTIMATE — eToro's own figure uses its own pricing, so expect it within a dollar or two.
 async function estimateTodayPl(holdings) {
   if (!FINNHUB || !Array.isArray(holdings) || !holdings.length) return { todayPlUsd: null, partial: false, covered: 0, total: 0 };
   let sum = 0, covered = 0;
   await Promise.all(holdings.map(async h => {
     const sym = String(h.symbol || '').toUpperCase();
-    const units = n2(h.units);
-    if (!sym || sym.startsWith('ID') || !units) return;
+    const val = n2(h.valueUsd);
+    if (!sym || sym.startsWith('ID') || !val) return;
     try {
       const j = await getJson(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${FINNHUB}`);
-      if (j && typeof j.d === 'number' && j.c) { sum += units * j.d; covered++; }
+      if (j && typeof j.dp === 'number' && j.c) {
+        const dp = j.dp / 100;
+        sum += val * dp / (1 + dp);   // today's $ change implied by this holding's % move on its current value
+        covered++;
+      }
     } catch (_) { /* skip this symbol */ }
   }));
-  if (!covered) return { todayPlUsd: null, partial: true, covered: 0, total: holdings.length };
-  return { todayPlUsd: +sum.toFixed(2), partial: covered < holdings.length, covered, total: holdings.length };
+  const total = holdings.filter(h => n2(h.valueUsd)).length;
+  if (!covered) return { todayPlUsd: null, partial: true, covered: 0, total };
+  return { todayPlUsd: +sum.toFixed(2), partial: covered < total, covered, total };
 }
 
 async function mapEtoroPnl(raw) {
