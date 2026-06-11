@@ -327,6 +327,9 @@
   </div>
 </div>
 
+<!-- CONVICTION GATE -->
+<div id="convictionGate"></div>
+
 <!-- TRAFFIC LIGHT -->
 <div class="tl" id="trafficLight">
   <div class="lamp"><div class="d" id="lampR" style="color:var(--risk)"></div><div class="d" id="lampA" style="color:var(--watch)"></div><div class="d" id="lampG" style="color:var(--act)"></div></div>
@@ -667,6 +670,79 @@ function gaugeSemi(value,max,color){
 }
 
 /* ───────── compute engine (fully dynamic over holdings) ───────── */
+// CONVICTION GATE — sits between analysis and recommendation. Decides how much the system is
+// ALLOWED to recommend (DEPLOY / DEPLOY SMALL / WATCH / WAIT) based on data freshness, committee
+// integrity, contradictions between the engines, and pending event risk. It never lets the headline
+// sound more confident than the inputs justify. Returns {level, allowed, reasons[]}.
+function convictionGate(danger){
+  const reasons=[]; const red=t=>reasons.push({sev:'red',txt:t}); const amber=t=>reasons.push({sev:'amber',txt:t});
+  const synth=S.committee&&S.committee.synth;
+  // -- Committee integrity --
+  let committeeRun=false, macroFailed=false, geoFailed=false, collapsed=false, uniqueModels=null, seatsResp=null, seatsConf=null, usedFallback=false;
+  if(synth){
+    committeeRun=true;
+    const ss=Array.isArray(synth.seatStatus)?synth.seatStatus:[];
+    const ok=ss.filter(s=>s.status==='ok');
+    seatsConf=synth.seatsConfigured||ss.length||4;
+    seatsResp=synth.seatsResponded!=null?synth.seatsResponded:ok.length;
+    if(ss.length){
+      uniqueModels=new Set(ok.map(s=>String(s.modelUsed||s.model||'').toLowerCase())).size;
+      collapsed= ok.length>=2 && uniqueModels<=1;          // all responders ran on the same model
+      usedFallback= ss.some(s=>s.usedFallback);
+      const macro=ss.find(s=>/macro/i.test(s.seat||'')||/macro/i.test(s.role||''));
+      if(macro) macroFailed= macro.status!=='ok';
+    }
+    geoFailed= !synth.geoRisk || !!synth.geoRisk.error;     // geo officer didn't run / errored
+  }
+  // -- Data freshness --
+  const live=S.market.live, stale=isStale();
+  const haveMk=S.market.vix!=null||S.market.y10!=null||S.market.spx!=null;
+  const vixDailyClose= live && S.market.vix!=null;          // FRED VIX is a daily close — lags intraday
+  // -- News severity (keyword heuristic) --
+  const news=S.newsList||[];
+  const HI=/\b(war|invasion|invade|strikes?|attack|missile|nuclear|conflict|escalat\w*|hormuz|sanction\w*|crash|plunge|sell-?off|collapse|default|crisis|shock|tumble)\b/i;
+  const WAR=/\b(war|strikes?|attack|missile|invasion|hormuz|conflict|escalat\w*|nuclear)\b/i;
+  const txt=n=>String((n&&(n.headline||n))||'');
+  const sevHits=news.filter(n=>HI.test(txt(n))).length;
+  const newsSeverity= sevHits>=2?'high':sevHits===1?'medium':'low';
+  const warHeadline=news.some(n=>WAR.test(txt(n)));
+  // -- Index move vs prior snapshot --
+  const keys=Object.keys(S.snapshots||{}).sort(), prevKey=keys.filter(k=>k<todayKey()).pop(), prev=prevKey?S.snapshots[prevKey]:null;
+  const pcOf=(cur,p)=> (cur!=null&&p!=null&&p!==0)?((cur-p)/p*100):null;
+  const spxPct=prev?pcOf(S.market.spx,prev.spx):null, ndxPct=prev?pcOf(S.market.ndx,prev.ndx):null;
+  const sharpDrop= (spxPct!=null&&spxPct<=-1.5)||(ndxPct!=null&&ndxPct<=-1.5);
+  // -- Contradiction detection (the four engines disagreeing) --
+  const contras=[];
+  if(newsSeverity==='high'&&danger<50) contras.push('News reads high-risk but the danger score reads calm');
+  if(sharpDrop&&danger<50) contras.push('Indexes down sharply today but the danger score reads calm');
+  if(warHeadline&&committeeRun&&geoFailed) contras.push('Geopolitical headlines, but the Geopolitical seat couldn\u2019t run');
+  // -- Event risk --
+  const nx=nextEvent();
+  const eventPending= nx&&nx.days!=null&&nx.days<=2&&(nx.impact==='high'||/CPI|FOMC|Fed|payroll|PPI|jobs/i.test(nx.name));
+  // -- Red-tier reasons --
+  if(committeeRun&&macroFailed) red('Macro seat failed to respond');
+  if(committeeRun&&geoFailed) amber('Geopolitical assessment unavailable (officer didn\u2019t run)');
+  if(committeeRun&&collapsed) red('Committee collapsed onto a single model \u2014 not independent');
+  if(newsSeverity==='high') amber('High-severity news in the feed');
+  contras.forEach(red);
+  if(stale&&live) red('Market data is stale (>4h since refresh)');
+  if(eventPending) red('Major event pending: '+nx.name+' in '+nx.days+'d');
+  // -- Amber-tier reasons --
+  if(!live&&haveMk) amber('Macro entered manually, not live');
+  if(committeeRun&&seatsResp!=null&&seatsConf!=null&&seatsResp<seatsConf&&!macroFailed&&!geoFailed) amber((seatsConf-seatsResp)+' committee seat(s) dropped out');
+  if(committeeRun&&usedFallback&&!collapsed) amber('Some seats answered via fallback model');
+  if(!committeeRun) amber('No committee run yet \u2014 verdict not factored in');
+  // -- Level --
+  const reds=reasons.filter(r=>r.sev==='red').length;
+  let level;
+  if(!haveMk && !live) level='BLACK';                       // genuinely blind \u2014 cannot assess risk
+  else if(reds>=1) level='RED';
+  else if(reasons.length>=1) level='YELLOW';
+  else level='GREEN';
+  const allowed={GREEN:'DEPLOY',YELLOW:'DEPLOY SMALL / WATCH',RED:'WATCH ONLY',BLACK:'WAIT \u2014 NO ALLOCATION'}[level];
+  return {level,allowed,reasons,reds};
+}
+
 function compute(){
   const t=S.targets,list=syms();
   let invested=0,cost=0,dayPl=0,haveDp=false,etoroPl=0,haveEtoroPl=false;const rows={};
@@ -747,11 +823,23 @@ function compute(){
     :(deployNow>0&&!waitForEvent&&opportunity>=65&&danger<55)?"green"
     :(deployNow>0&&waitForEvent)?"amber"
     :(deployNow>0)?"amber":"green";
-  const lightAct= light==="red"?"WAIT / TRIM": light==="amber"?"DEPLOY GRADUALLY":"DEPLOY / ON PLAN";
+  let lightAct= light==="red"?"WAIT / TRIM": light==="amber"?"DEPLOY GRADUALLY":"DEPLOY / ON PLAN";
+
+  // Conviction gate — cap the recommendation to what the inputs justify (runs before the verdict is shown).
+  const conviction=convictionGate(danger);
+  let gateBlock=false, gateSmall=false;
+  if(conviction.level==="RED"||conviction.level==="BLACK"){
+    light="red"; gateBlock=true;
+    lightAct= conviction.level==="BLACK"?"WAIT \u2014 NO ALLOCATION":"WATCH ONLY \u00b7 LOW CONVICTION";
+  } else if(conviction.level==="YELLOW"){
+    if(light==="green") light="amber";
+    if(deployNow>0) lightAct="DEPLOY SMALL \u00b7 CAUTION";
+    gateSmall=true;
+  }
 
   const c={rows,list,invested,cost,cash,reserve,pot,totPl,dayPl,haveDp,haveEtoroPl,cashPc,cashTgt,drift,cashDrag,
     topStock,concPc,danger,dangerLabel,dg,opportunity,oppScores,excessPc,excessDollar,deployable,deployNow,split,
-    cashTgtDollar,ev,bigSoon,waitForEvent,status,light,lightAct,fg,vix,health:+health.toFixed(1)};
+    cashTgtDollar,ev,bigSoon,waitForEvent,status,light,lightAct,fg,vix,health:+health.toFixed(1),conviction,gateBlock,gateSmall};
   c.grand=allocateAmount(1000,c);
   return c;
 }
@@ -773,6 +861,22 @@ function allocateAmount(amount,c){
 
 /* ───────── render ───────── */
 let countdownTimer=null;
+function renderConviction(c){
+  const el=$("convictionGate"); if(!el)return; const g=c.conviction; if(!g){el.innerHTML="";return;}
+  const map={GREEN:{col:C.act,tag:"CLEAR"},YELLOW:{col:C.watch,tag:"CAUTION"},RED:{col:C.risk,tag:"LOW"},BLACK:{col:C.risk,tag:"BLOCKED"}};
+  const m=map[g.level]||map.YELLOW;
+  const reds=g.reasons.filter(r=>r.sev==="red"), ambers=g.reasons.filter(r=>r.sev==="amber");
+  const show=(reds.length?reds:ambers).slice(0,5);
+  el.innerHTML=`<div style="border:1.5px solid ${m.col};border-radius:14px;padding:13px 15px;margin-bottom:12px;background:${g.level==="GREEN"?"transparent":"rgba(0,0,0,.22)"}">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+      <div><div style="font-family:var(--mono);font-size:10.5px;color:var(--muted);letter-spacing:.1em">CONVICTION</div>
+      <div style="font-family:var(--disp);font-weight:700;font-size:19px;color:${m.col};text-shadow:0 0 12px ${m.col}55">${g.level} \u00b7 ${esc(g.allowed)}</div></div>
+      <span style="font-family:var(--mono);font-size:10.5px;color:${m.col};border:1px solid ${m.col};border-radius:6px;padding:2px 7px;white-space:nowrap">${m.tag}</span>
+    </div>
+    ${show.length?`<ul style="margin:10px 0 0;padding-left:17px;line-height:1.55">${show.map(r=>`<li style="font-size:12.5px;color:${r.sev==="red"?C.risk:C.watch}">${esc(r.txt)}</li>`).join("")}</ul>`:`<div style="font-size:12.5px;color:var(--muted-2);margin-top:7px">Fresh inputs, committee intact, no contradictions \u2014 full deployment guidance allowed.</div>`}
+    ${g.level!=="GREEN"?`<div style="font-size:11.5px;color:var(--muted-2);margin-top:10px;border-top:1px solid var(--line-soft);padding-top:8px">Deployment guidance below is capped to <b style="color:${m.col}">${esc(g.allowed)}</b> until these clear \u2014 the system won't sound more confident than the data justifies.</div>`:""}
+  </div>`;
+}
 function render(){
   const c=compute();
   $("pv").innerHTML=usd(c.pot)+'<span class="bhd">/ '+bhd(c.pot)+'</span>';
@@ -790,10 +894,13 @@ function render(){
   $({red:"lampR",amber:"lampA",green:"lampG"}[c.light]).classList.add("on");
   const lcol={red:C.risk,amber:C.watch,green:C.act}[c.light];
   $("tlAction").textContent=c.lightAct;$("tlAction").style.color=lcol;$("trafficLight").style.borderColor=lcol;
+  const gateReason=c.conviction&&c.conviction.reasons.filter(r=>r.sev==="red")[0];
   $("tlWhy").textContent=c.pot<=0?"Enter your portfolio to get a decision."
+    : c.gateBlock?("Conviction "+c.conviction.level.toLowerCase()+" \u2014 "+(gateReason?gateReason.txt.toLowerCase():"key inputs incomplete")+". Recommendation held to "+c.conviction.allowed.toLowerCase()+".")
     : c.light==="red"?(c.status==="REDUCE RISK"?(c.concPc>12?`${c.topStock} is ${c.concPc.toFixed(0)}% of the book — too concentrated. Don't add; consider trimming.`:"Risk is high. Don't add today."):"Hold off today.")
-    : c.light==="amber"?(c.waitForEvent&&c.ev?`${c.ev.name} in ${c.ev.days}d — deploy part now, hold the rest until after.`:"Deploy in tranches, not all at once.")
+    : c.light==="amber"?(c.gateSmall?"Some inputs are soft \u2014 deploy a small tranche at most, not the full amount.":(c.waitForEvent&&c.ev?`${c.ev.name} in ${c.ev.days}d — deploy part now, hold the rest until after.`:"Deploy in tranches, not all at once."))
     : (c.deployNow>0?`Deploy ${usd(c.deployNow)} into what's below target.`:"You're on plan. Nothing to force.");
+  renderConviction(c);
 
   gauge("gHealth","vHealth",c.health,10,c.health>=7?C.act:c.health>=4?C.watch:C.risk,c.health.toFixed(1));
   gauge("gDanger","vDanger",c.danger,100,c.danger<25?C.act:c.danger<50?C.watch:C.risk,String(c.danger));
@@ -924,10 +1031,18 @@ function renderDryPowder(c){
   $("dpDot").style.background=c.deployNow>0?C.act:C.hold;
   const rec=$("dpRec");
   if(c.deployable<=0){rec.className="dp-rec wait";$("dpRecB").textContent="Nothing to deploy — keep cash steady";$("deploySplit").innerHTML="";$("dpMeans").textContent="Cash is at/below target. Don't raise extra cash hoping to time a dip.";return;}
+  if(c.gateBlock){
+    rec.className="dp-rec wait";
+    $("dpRecB").textContent=c.conviction.level==="BLACK"?"Hold — inputs unreliable, no allocation":"Hold — conviction too low to deploy";
+    $("deploySplit").innerHTML="";
+    $("dpMeans").innerHTML=`You have ${dual(c.excessDollar)} above target, but the <b style="color:var(--risk)">conviction gate is ${c.conviction.level}</b> — the suggested split is held back until the flagged inputs clear. This isn't "don't ever deploy"; it's "don't deploy <i>blind</i> right now."`;
+    return;
+  }
   if(c.waitForEvent){rec.className="dp-rec wait";$("dpRecB").textContent=`Deploy ${usd(c.deployNow)} AFTER ${c.ev&&c.ev.impact==="high"&&c.ev.days<=2?c.ev.name:"the data"}`;}
+  else if(c.gateSmall){rec.className="dp-rec";$("dpRecB").textContent=`Deploy a small tranche only (~${usd(Math.min(c.deployNow,250))})`;}
   else{rec.className="dp-rec";$("dpRecB").textContent=`Deploy ${usd(c.deployNow)} now`;}
   $("deploySplit").innerHTML=c.split.map(s=>{const w=s.amt/c.deployNow*100;return `<div class="ds"><span class="badge" style="background:${colorFor(s.asset)}">${s.asset}</span><div class="bar"><i style="width:${w}%"></i></div><span class="amt">${dual(s.amt)}</span></div>`;}).join("");
-  $("dpMeans").innerHTML=`${dual(c.excessDollar)} above your ${c.cashTgt}% cash target. ${c.waitForEvent?`A high-impact event is close — deploy ${usd(c.deployNow)} <b>after</b> it lands, keep the rest as a second tranche.`:`Put ${usd(c.deployNow)} to work now, hold the rest for a second tranche. Buy what's furthest below target.`}`;
+  $("dpMeans").innerHTML=`${dual(c.excessDollar)} above your ${c.cashTgt}% cash target. ${c.gateSmall?`Some inputs are soft (conviction ${c.conviction.level}) — keep it to a small tranche today, not the full ${usd(c.deployNow)}.`:c.waitForEvent?`A high-impact event is close — deploy ${usd(c.deployNow)} <b>after</b> it lands, keep the rest as a second tranche.`:`Put ${usd(c.deployNow)} to work now, hold the rest for a second tranche. Buy what's furthest below target.`}`;
 }
 
 function renderRadar(){
@@ -1097,11 +1212,19 @@ function renderCommittee(){
 function renderGuide(c){
   $("guideStamp").textContent=c.lightAct;
   const doItems=[];let doMain;
-  if(c.light==="red"){doMain=c.status==="REDUCE RISK"?"WAIT — DO NOT ADD RISK":"WAIT TODAY";}
-  else if(c.light==="amber"){doMain=c.waitForEvent&&c.ev?("WAIT FOR "+c.ev.name.toUpperCase()):"DEPLOY GRADUALLY";}
+  if(c.gateBlock){doMain=c.conviction.level==="BLACK"?"WAIT — NO ALLOCATION":"WATCH ONLY";}
+  else if(c.light==="red"){doMain=c.status==="REDUCE RISK"?"WAIT — DO NOT ADD RISK":"WAIT TODAY";}
+  else if(c.light==="amber"){doMain=c.gateSmall?"DEPLOY SMALL ONLY":(c.waitForEvent&&c.ev?("WAIT FOR "+c.ev.name.toUpperCase()):"DEPLOY GRADUALLY");}
   else doMain=c.deployNow>0?"DEPLOY NOW":"STAY ON PLAN";
   doItems.push("Do not sell anything today.");
-  if(c.deployNow>0&&c.light!=="red"){if(c.waitForEvent)doItems.push("After the data lands, deploy "+usd(c.deployNow)+":");c.split.slice(0,4).forEach(s=>doItems.push((c.waitForEvent?"  • ":"Buy ")+usd(s.amt)+" "+s.asset+" ("+bhd(s.amt)+")"));}
+  if(c.gateBlock){
+    const gr=c.conviction.reasons.filter(r=>r.sev==="red").slice(0,3);
+    doItems.push("No deployment today — conviction is "+c.conviction.level+":");
+    gr.forEach(r=>doItems.push("  • "+r.txt));
+    doItems.push("Re-run once these clear (fresh data + committee), then deploy.");
+  }
+  else if(c.gateSmall&&c.deployNow>0){doItems.push("Inputs are soft — deploy a small tranche only (~"+usd(Math.min(c.deployNow,250))+"), not the full "+usd(c.deployNow)+".");}
+  else if(c.deployNow>0&&c.light!=="red"){if(c.waitForEvent)doItems.push("After the data lands, deploy "+usd(c.deployNow)+":");c.split.slice(0,4).forEach(s=>doItems.push((c.waitForEvent?"  • ":"Buy ")+usd(s.amt)+" "+s.asset+" ("+bhd(s.amt)+")"));}
   else doItems.push("No deployment today — let the plan run.");
   doItems.push("Then close the app and get on with your day.");
   const dont=[];
@@ -1272,8 +1395,8 @@ function buildPacket(c){
   L.push("TASK: From your assigned role, give a blunt independent read of (1) portfolio, (2) market, (3) the key risk now, (4) the key opportunity now, (5) deploy today yes/no and where. End with ONE verdict: BUY AGGRESSIVELY / BUY GRADUALLY / HOLD / WAIT / REDUCE RISK. Finish with: IF I HAD $1,000 TODAY → exact split or WAIT FOR <event>.");
   return L.join("\n");
 }
-// Portfolio-FREE context for the Geopolitical Risk Officer (Grok). Deliberately contains no holdings,
-// no values, no P/L and no history — only market/macro/news so Grok can flag external risks.
+// Portfolio-FREE context for the Geopolitical Risk Officer (Gemini, dedicated geo brief). Deliberately
+// contains no holdings, no values, no P/L and no history — only market/macro/news so it can flag external risks.
 function buildGeoPacket(c){
   const mk=S.market,ma=S.macro,L=[];
   L.push("GEOPOLITICAL CONTEXT — "+new Date().toISOString()+" (no portfolio data included)");
@@ -1308,7 +1431,7 @@ function voteBreakdownHTML(j){
   h+=`</tbody></table></div>`;
   return h;
 }
-function geoCardHTML(g){if(!g)return'';if(g.error){return `<div class="geo-card" style="border-color:rgba(229,72,77,.4);background:rgba(229,72,77,.06)"><div class="geo-h" style="color:#f0a0a3">🌍 Geopolitical Risk Officer — couldn't run</div><div style="font-size:12px;color:var(--muted);margin-top:6px">Grok${g.model?" ("+esc(g.model)+")":""} error: ${esc(g.error)}</div>${g.note?`<div style="font-size:11px;color:var(--muted-2);margin-top:5px">Reply: ${esc(g.note)}</div>`:''}</div>`;}let h=`<div class="geo-card"><div class="geo-h">🌍 Geopolitical Risk Officer <span style="font-weight:400;color:var(--muted-2);font-size:11px">· Grok${g.model?" "+esc(g.model):""} · separate from the vote, not a verdict</span></div>`;if(g.summary)h+=`<div style="font-size:12.5px;color:var(--muted);margin-top:7px">${esc(g.summary)}</div>`;if(Array.isArray(g.events)&&g.events.length)h+=`<ul style="margin:8px 0 0;padding-left:18px;font-size:12.5px;color:var(--fg)">${g.events.map(e=>"<li style='margin-bottom:3px'>"+esc(e)+"</li>").join("")}</ul>`;if(g.couldMakeWrong)h+=`<div style="font-size:12.5px;margin-top:9px"><b style="color:var(--risk)">Could make the committee wrong:</b> ${esc(g.couldMakeWrong)}</div>`;if(g.watch)h+=`<div style="font-size:12.5px;margin-top:5px"><b style="color:var(--watch)">Watch:</b> ${esc(g.watch)}</div>`;return h+`</div>`;}
+function geoCardHTML(g){if(!g)return'';if(g.error){return `<div class="geo-card" style="border-color:rgba(229,72,77,.4);background:rgba(229,72,77,.06)"><div class="geo-h" style="color:#f0a0a3">🌍 Geopolitical Risk Officer — couldn't run</div><div style="font-size:12px;color:var(--muted);margin-top:6px">Geo officer${g.model?" ("+esc(g.model)+")":""} error: ${esc(g.error)}</div>${g.note?`<div style="font-size:11px;color:var(--muted-2);margin-top:5px">Reply: ${esc(g.note)}</div>`:''}</div>`;}let h=`<div class="geo-card"><div class="geo-h">🌍 Geopolitical Risk Officer <span style="font-weight:400;color:var(--muted-2);font-size:11px">· ${esc(g.by==='grok'?'Grok':'Gemini')}${g.model?" "+esc(g.model):""} · separate from the vote, not a verdict</span></div>`;if(g.summary)h+=`<div style="font-size:12.5px;color:var(--muted);margin-top:7px">${esc(g.summary)}</div>`;if(Array.isArray(g.events)&&g.events.length)h+=`<ul style="margin:8px 0 0;padding-left:18px;font-size:12.5px;color:var(--fg)">${g.events.map(e=>"<li style='margin-bottom:3px'>"+esc(e)+"</li>").join("")}</ul>`;if(g.couldMakeWrong)h+=`<div style="font-size:12.5px;margin-top:9px"><b style="color:var(--risk)">Could make the committee wrong:</b> ${esc(g.couldMakeWrong)}</div>`;if(g.watch)h+=`<div style="font-size:12.5px;margin-top:5px"><b style="color:var(--watch)">Watch:</b> ${esc(g.watch)}</div>`;return h+`</div>`;}
 async function runDeepTriggers(){
   S.behaviour=S.behaviour||{refreshLog:[],deepLog:[]};S.behaviour.deepLog.push(Date.now());
   const c=render();$("deepCard").style.display="block";$("deepCard").scrollIntoView({behavior:"smooth",block:"start"});

@@ -99,7 +99,7 @@ app.get('/api/health', (req, res) => {
       openrouter: !!process.env.OPENROUTER_API_KEY, grok: GROK_ON
     },
     committeeSeats: loadSeats().filter(s => providerHasKey(s.provider)).length,
-    geoOfficer: GROK_ON ? { on: true, model: GROK_MODEL, liveSearch: GROK_LIVE_SEARCH } : { on: false },
+    geoOfficer: (process.env.GEMINI_API_KEY) ? { on: true, model: process.env.GEO_MODEL || process.env.GEMINI_MODEL || 'gemini-2.5-flash', by: 'gemini' } : { on: false },
     ts: Date.now()
   });
 });
@@ -601,27 +601,32 @@ const MODEL_ASK = '\n\nRespond ONLY with compact JSON, no markdown:\n{"verdict":
 const SYNTH_ASK = '\n\nYou MUST judge which argument is strongest. DO NOT average the verdicts and DO NOT just take the majority. Decide.\n\nRespond ONLY with compact JSON, no markdown:\n{"finalVerdict":"<one of: ' + VERDICTS.join(' | ') + '>","agree":["<points all/most models agree on>"],"disagree":["<genuine points of disagreement>"],"strongestArgument":"<which view is strongest and why>","weakestAssumption":"<the weakest assumption anyone is relying on>","riskWarning":"<one blunt sentence>","ifIHad1000":"<exact $ split totalling 1000, or WAIT FOR <event>>","idiotGuide":{"do":["..."],"dont":["..."],"checkAgain":"..."}}';
 const GEO_ASK = '\n\nYou are NOT a market analyst and you do NOT give buy/sell/hold advice. You never see the portfolio. Your ONLY job: name near-term (next 1\u20134 weeks) GLOBAL or GEOPOLITICAL events that could make the committee\u2019s verdict wrong \u2014 wars, sanctions, elections, oil/energy shocks, central-bank surprises, tariffs, major-power tensions.\n\nRespond ONLY with compact JSON, no markdown:\n{"summary":"<2 sentences on the geopolitical risk backdrop right now>","events":["<near-term event + date if known + why it matters to markets>","..."],"couldMakeWrong":"<the single scenario most likely to blindside the committee\u2019s verdict>","watch":"<the one headline or indicator to watch>"}';
 
-// Geopolitical Risk Officer (Grok). Runs independently of the committee — geopolitical risk exists
-// whether or not the 4 seats responded. NEVER receives portfolio holdings/history, only geoPacket.
+// Dedicated Geopolitical Risk Officer brief. Same underlying model as a committee seat can use, but a
+// DELIBERATELY different role and weighting — perspective diversity, not model diversity. It assumes the
+// consensus is complacent and over-weights low-probability/high-impact tail risk.
+const GEO_MODEL = process.env.GEO_MODEL || process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const GEO_SYS = 'You are the GEOPOLITICAL RISK OFFICER on an investment committee \u2014 a distinct seat, deliberately NOT a portfolio manager and NOT a markets analyst. Your lens is geopolitics, macro-strategy and tail risk. You think like a sovereign-risk desk: assume the market consensus is complacent and your job is to surface what it is ignoring. You weight low-probability, high-impact events (wars, blockades, sanctions, energy shocks, central-bank surprises, election/regime shocks, major-power escalation) more heavily than a markets analyst would. You never see the portfolio and you never give buy/sell/hold advice.' + GEO_ASK;
+
+// Geopolitical Risk Officer (Gemini, dedicated geopolitical prompt). Runs independently of the committee —
+// geopolitical risk exists whether or not the 4 seats responded. NEVER receives portfolio holdings/history.
 async function runGeoOfficer(geoPacket, verdict, ROLES) {
-  if (!GROK_ON || typeof geoPacket !== 'string' || !geoPacket.trim()) return null;
+  if (!providerHasKey('gemini') || typeof geoPacket !== 'string' || !geoPacket.trim()) return null;
   let raw;
   try {
-    const geoSystem = (ROLES.geopolitics || 'You are the committee\u2019s Geopolitical Risk Officer.') + GEO_ASK;
     const geoUser = 'MACRO / MARKET / NEWS CONTEXT (no portfolio data):\n' + geoPacket +
       '\n\nThe committee\u2019s current verdict: ' + (verdict || 'no verdict (committee unavailable this run)') +
       '.\nName the near-term global/geopolitical events that could make a deploy-or-wait decision wrong right now, and the one thing to watch.';
-    raw = await callGrok(geoUser, geoSystem);
+    raw = await callGemini(geoUser, GEO_SYS, GEO_MODEL);
   } catch (e) {
-    return { error: String((e && e.message) || e).slice(0, 220), by: 'grok', model: GROK_MODEL };
+    return { error: String((e && e.message) || e).slice(0, 220), by: 'gemini', model: GEO_MODEL };
   }
-  if (!raw) return { error: 'Grok returned an empty response — the xAI account may need an active payment method/credit before API calls work.', by: 'grok', model: GROK_MODEL };
+  if (!raw) return { error: 'Geopolitical Officer (Gemini) returned an empty response.', by: 'gemini', model: GEO_MODEL };
   const g = parseJsonLoose(raw);
-  if (!g) return { error: 'Grok replied but not in the expected JSON format.', note: String(raw).slice(0, 240), by: 'grok', model: GROK_MODEL };
+  if (!g) return { error: 'Geopolitical Officer replied but not in the expected JSON format.', note: String(raw).slice(0, 240), by: 'gemini', model: GEO_MODEL };
   return {
     summary: g.summary || '', events: Array.isArray(g.events) ? g.events.slice(0, 5) : [],
     couldMakeWrong: g.couldMakeWrong || '', watch: g.watch || '',
-    by: 'grok', model: GROK_MODEL, liveSearch: GROK_LIVE_SEARCH
+    by: 'gemini', model: GEO_MODEL
   };
 }
 
