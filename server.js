@@ -606,19 +606,36 @@ const GEO_ASK = '\n\nYou are NOT a market analyst and you do NOT give buy/sell/h
 // consensus is complacent and over-weights low-probability/high-impact tail risk.
 const GEO_MODEL = process.env.GEO_MODEL || process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const GEO_SYS = 'You are the GEOPOLITICAL RISK OFFICER on an investment committee \u2014 a distinct seat, deliberately NOT a portfolio manager and NOT a markets analyst. Your lens is geopolitics, macro-strategy and tail risk. You think like a sovereign-risk desk: assume the market consensus is complacent and your job is to surface what it is ignoring. You weight low-probability, high-impact events (wars, blockades, sanctions, energy shocks, central-bank surprises, election/regime shocks, major-power escalation) more heavily than a markets analyst would. You never see the portfolio and you never give buy/sell/hold advice.' + GEO_ASK;
+// Gemini can throw a transient "HTTP 503 ... high demand" when overloaded. The Geo Officer retries
+// these capacity/rate errors with exponential backoff before giving up. Resilience only — this path
+// NEVER touches the committee verdict. Permanent errors (4xx) and timeouts are NOT retried, so the
+// overall request stays inside its time budget.
+const GEO_BACKOFF_MS = [2000, 5000, 10000];
+function geoIsTransient(msg) { return /HTTP\s+(429|5\d\d)/.test(String(msg || '')); }
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Geopolitical Risk Officer (Gemini, dedicated geopolitical prompt). Runs independently of the committee —
 // geopolitical risk exists whether or not the 4 seats responded. NEVER receives portfolio holdings/history.
 async function runGeoOfficer(geoPacket, verdict, ROLES) {
   if (!providerHasKey('gemini') || typeof geoPacket !== 'string' || !geoPacket.trim()) return null;
-  let raw;
-  try {
-    const geoUser = 'MACRO / MARKET / NEWS CONTEXT (no portfolio data):\n' + geoPacket +
-      '\n\nThe committee\u2019s current verdict: ' + (verdict || 'no verdict (committee unavailable this run)') +
-      '.\nName the near-term global/geopolitical events that could make a deploy-or-wait decision wrong right now, and the one thing to watch.';
-    raw = await callGemini(geoUser, GEO_SYS, GEO_MODEL);
-  } catch (e) {
-    return { error: String((e && e.message) || e).slice(0, 220), by: 'gemini', model: GEO_MODEL };
+  const geoUser = 'MACRO / MARKET / NEWS CONTEXT (no portfolio data):\n' + geoPacket +
+    '\n\nThe committee\u2019s current verdict: ' + (verdict || 'no verdict (committee unavailable this run)') +
+    '.\nName the near-term global/geopolitical events that could make a deploy-or-wait decision wrong right now, and the one thing to watch.';
+  // Attempt 1 immediately, then retry transient (429/5xx) failures after 2s, 5s, 10s.
+  let raw = null;
+  const delays = [0].concat(GEO_BACKOFF_MS);
+  for (let i = 0; i < delays.length; i++) {
+    if (delays[i]) await sleep(delays[i]);
+    try {
+      raw = await callGemini(geoUser, GEO_SYS, GEO_MODEL);
+      break;
+    } catch (e) {
+      const msg = String((e && e.message) || e);
+      const last = i === delays.length - 1;
+      if (!last && geoIsTransient(msg)) continue;
+      const tries = i + 1;
+      return { error: msg.slice(0, 200) + (tries > 1 ? ' (after ' + tries + ' attempts)' : ''), by: 'gemini', model: GEO_MODEL, attempts: tries };
+    }
   }
   if (!raw) return { error: 'Geopolitical Officer (Gemini) returned an empty response.', by: 'gemini', model: GEO_MODEL };
   const g = parseJsonLoose(raw);
