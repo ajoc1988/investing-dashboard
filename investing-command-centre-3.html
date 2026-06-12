@@ -1,0 +1,1580 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Investing Command Centre</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#05070E; --panel:#0D1220; --panel-2:#141C2E; --line:#27344E; --line-soft:#1a2334;
+    --text:#EAF1FB; --muted:#8893AC; --muted-2:#5b6480;
+    --act:#16FF9E; --watch:#FFC400; --risk:#FF2E63; --hold:#8691A8; --data:#00E5FF;
+    --act-dim:rgba(22,255,158,.12); --watch-dim:rgba(255,196,0,.12);
+    --risk-dim:rgba(255,46,99,.12); --hold-dim:rgba(134,145,168,.12); --data-dim:rgba(0,229,255,.11);
+    --r:14px; --r-sm:9px;
+    --mono:'JetBrains Mono',ui-monospace,monospace; --disp:'Space Grotesk',system-ui,sans-serif; --body:'Inter',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--ink); color:var(--text); font-family:var(--body); font-size:15px; line-height:1.45;
+    -webkit-font-smoothing:antialiased; padding:max(12px,env(safe-area-inset-top)) 12px calc(40px + env(safe-area-inset-bottom));
+    max-width:760px; margin:0 auto;}
+  h1,h2,h3{font-family:var(--disp); margin:0; letter-spacing:.2px}
+  .num{font-family:var(--mono); font-variant-numeric:tabular-nums; letter-spacing:-.3px}
+  .bhd{color:var(--muted); font-weight:400}
+  button{font-family:var(--body); cursor:pointer; border:none; color:inherit}
+  .eyebrow{font-family:var(--mono); font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--muted-2)}
+
+  header.top{display:flex; align-items:flex-start; justify-content:space-between; gap:10px; padding:6px 2px 12px}
+  header.top h1{font-size:18px; font-weight:700; line-height:1.1}
+  header.top .sub{font-size:11px; color:var(--muted); margin-top:3px}
+  .conf{display:flex; flex-direction:column; align-items:flex-end; gap:3px; font-size:10.5px; color:var(--muted)}
+  .conf .pill{font-family:var(--mono); font-size:10px; padding:2px 8px; border-radius:20px; border:1px solid var(--line)}
+  .conf .pill.high{color:var(--act); border-color:rgba(47,191,113,.4); background:var(--act-dim)}
+  .conf .pill.medium{color:var(--watch); border-color:rgba(232,169,59,.4); background:var(--watch-dim)}
+  .conf .pill.low{color:var(--risk); border-color:rgba(229,72,77,.4); background:var(--risk-dim)}
+
+  /* portfolio summary */
+  .summary{background:linear-gradient(180deg,var(--panel-2),var(--panel)); border:1px solid var(--line); border-radius:var(--r); padding:16px 15px}
+  .summary .lab{font-family:var(--mono); font-size:10px; letter-spacing:1.5px; color:var(--muted); text-transform:uppercase}
+  .summary .pv{font-family:var(--mono); font-size:30px; font-weight:700; letter-spacing:-1px; line-height:1.05; margin-top:3px}
+  .summary .pv .bhd{font-size:15px; display:block; letter-spacing:0; margin-top:2px}
+  .summary .grid{display:flex; gap:16px; flex-wrap:wrap; margin-top:12px; padding-top:12px; border-top:1px solid var(--line-soft)}
+  .summary .g .k{font-size:9.5px; color:var(--muted-2); font-family:var(--mono); letter-spacing:.7px; text-transform:uppercase}
+  .summary .g .v{font-family:var(--mono); font-size:15px; font-weight:600; margin-top:2px}
+  .pos{color:var(--act)} .neg{color:var(--risk)} .flat{color:var(--muted)}
+
+  /* traffic light */
+  .tl{margin-top:12px; border:1px solid var(--line); border-radius:var(--r); overflow:hidden; display:flex; align-items:stretch}
+  .tl .lamp{flex:0 0 auto; width:72px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px; padding:14px 0; background:var(--ink)}
+  .tl .lamp .d{width:15px; height:15px; border-radius:50%; background:var(--line); opacity:.22}
+  .tl .lamp .d.on{opacity:1; box-shadow:0 0 12px currentColor}
+  .tl .body{flex:1; padding:14px 15px; display:flex; flex-direction:column; justify-content:center}
+  .tl .body .act{font-family:var(--disp); font-weight:700; font-size:22px; line-height:1}
+  .tl .body .why{font-size:12.5px; color:var(--muted); margin-top:6px}
+
+  .actions{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px}
+  .btn{border-radius:var(--r-sm); padding:15px 12px; font-family:var(--disp); font-weight:600; font-size:14px; border:1px solid var(--line);
+    background:var(--panel-2); color:var(--text); letter-spacing:.4px; display:flex; align-items:center; justify-content:center; gap:8px; transition:transform .08s}
+  .btn:active{transform:scale(.985)}
+  .btn .ico{font-family:var(--mono); font-size:13px}
+  .btn.primary{background:var(--data-dim); border-color:rgba(76,166,255,.45); color:#bcdcff}
+  .btn.run{background:var(--act-dim); border-color:rgba(47,191,113,.45); color:#a7ecc7}
+  .btn.run:disabled{opacity:.5; cursor:wait}
+  .util-row{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:9px}
+  .btn.sm{font-size:12px; padding:11px; font-family:var(--body); color:var(--muted)}
+
+  /* meters row */
+  .meters{display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:14px}
+  .meter{background:var(--panel); border:1px solid var(--line); border-radius:var(--r-sm); padding:11px 8px; text-align:center}
+  .meter .k{font-size:9px; color:var(--muted); font-family:var(--mono); letter-spacing:.5px; text-transform:uppercase}
+  .meter .gz{margin:2px 0 -6px}
+  .meter .v{font-family:var(--mono); font-size:18px; font-weight:700}
+  .chips{display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:8px}
+  .chip{background:var(--panel); border:1px solid var(--line); border-radius:var(--r-sm); padding:9px 10px}
+  .chip .k{font-size:9px; color:var(--muted-2); font-family:var(--mono); letter-spacing:.6px; text-transform:uppercase}
+  .chip .v{font-family:var(--disp); font-weight:600; font-size:13.5px; margin-top:3px}
+
+  section.card{background:var(--panel); border:1px solid var(--line); border-radius:var(--r); padding:15px 14px; margin-top:12px}
+  section.card > h2{font-size:13px; font-weight:600; letter-spacing:.6px; display:flex; align-items:center; gap:8px; margin-bottom:2px}
+  section.card > h2 .dot{width:7px; height:7px; border-radius:50%; flex:0 0 auto}
+  .card-note{font-size:11px; color:var(--muted); margin:2px 0 12px}
+  .means{margin-top:13px; padding-top:11px; border-top:1px dashed var(--line); font-size:12.5px}
+  .means b{font-family:var(--mono); font-size:9.5px; letter-spacing:1.2px; color:var(--muted-2); display:block; text-transform:uppercase; margin-bottom:3px}
+
+  /* market dashboard big cards */
+  .mkt-big{display:grid; grid-template-columns:1fr 1fr 1fr; gap:9px}
+  @media(max-width:520px){.mkt-big{grid-template-columns:1fr 1fr}}
+  .mb{background:var(--panel-2); border:1px solid var(--line-soft); border-radius:11px; padding:12px 12px}
+  .mb .t{font-family:var(--mono); font-size:10px; color:var(--muted); letter-spacing:.6px}
+  .mb .p{font-family:var(--mono); font-size:22px; font-weight:700; letter-spacing:-.5px; margin-top:5px}
+  .mb .c{font-family:var(--mono); font-size:11px; margin-top:3px}
+  .mb .mean{font-size:10px; color:var(--muted-2); margin-top:6px; line-height:1.35}
+
+  /* macro strip */
+  .macro{display:grid; grid-template-columns:1fr 1fr 1fr; gap:9px}
+  @media(max-width:520px){.macro{grid-template-columns:1fr}}
+  .mc-card{background:var(--panel-2); border:1px solid var(--line-soft); border-radius:11px; padding:12px}
+  .mc-card .t{font-family:var(--mono); font-size:10px; color:var(--muted); letter-spacing:.6px; text-transform:uppercase}
+  .mc-card .big{font-family:var(--mono); font-size:18px; font-weight:700; margin-top:5px}
+  .mc-card .sub{font-size:11px; color:var(--muted); margin-top:3px}
+
+  /* delta grid */
+  .delta-grid{display:grid; grid-template-columns:1fr 1fr; gap:8px}
+  .delta{background:var(--panel-2); border:1px solid var(--line-soft); border-radius:var(--r-sm); padding:10px 11px; display:flex; justify-content:space-between; align-items:center}
+  .delta .k{font-size:11.5px; color:var(--muted)}
+  .delta .v{font-family:var(--mono); font-weight:600; font-size:14px}
+
+  /* danger breakdown */
+  .bd-row{margin:10px 0}
+  .bd-row .lab{display:flex; justify-content:space-between; font-size:11.5px; margin-bottom:5px; color:var(--muted)}
+  .bd-row .lab .pc{font-family:var(--mono)}
+  .bd-row .track{height:8px; border-radius:5px; background:var(--line-soft); overflow:hidden}
+  .bd-row .track i{display:block; height:100%; border-radius:5px}
+
+  /* opportunity scores */
+  .opp-grid{display:grid; grid-template-columns:1fr 1fr; gap:9px}
+  .opp{background:var(--panel-2); border:1px solid var(--line-soft); border-radius:11px; padding:12px 13px}
+  .opp .top{display:flex; justify-content:space-between; align-items:baseline}
+  .opp .nm{font-family:var(--disp); font-weight:600; font-size:14px}
+  .opp .sc{font-family:var(--mono); font-size:20px; font-weight:700}
+  .opp .track{height:7px; border-radius:5px; background:var(--line-soft); margin-top:8px; overflow:hidden}
+  .opp .track i{display:block; height:100%; border-radius:5px}
+  .opp .tag{font-size:10px; color:var(--muted); margin-top:6px; font-family:var(--mono)}
+
+  /* portfolio */
+  table{width:100%; border-collapse:collapse; font-size:13px}
+  th{font-family:var(--mono); font-size:9.5px; letter-spacing:.6px; text-transform:uppercase; color:var(--muted-2); text-align:right; padding:0 0 8px; font-weight:500}
+  th:first-child{text-align:left}
+  td{padding:9px 0; border-top:1px solid var(--line-soft); text-align:right; font-family:var(--mono)}
+  td:first-child{text-align:left; font-family:var(--body); font-weight:500}
+  .tkr{display:flex; align-items:center; gap:8px}
+  .tkr .badge{font-family:var(--mono); font-size:10px; font-weight:700; padding:2px 6px; border-radius:5px; color:#0B0E14}
+  .pie-row{display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin-top:12px}
+  .pie-row .pie{flex:0 0 auto; width:150px}
+  .pie-legend{flex:1; min-width:160px; display:flex; flex-direction:column; gap:6px}
+  .pie-legend .lg{display:flex; align-items:center; gap:8px; font-size:12.5px}
+  .pie-legend .lg .sw{width:10px; height:10px; border-radius:3px; flex:0 0 auto}
+  .pie-legend .lg .nm{flex:1}
+  .pie-legend .lg .pc{font-family:var(--mono); color:var(--muted)}
+  .alloc .row{margin:11px 0}
+  .alloc .lab{display:flex; justify-content:space-between; font-size:12px; margin-bottom:5px}
+  .alloc .lab .pc{font-family:var(--mono); color:var(--muted)}
+  .alloc .track{height:9px; border-radius:6px; background:var(--line-soft); position:relative; overflow:visible}
+  .alloc .fill{height:100%; border-radius:6px}
+  .alloc .tgt{position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--text); opacity:.7}
+
+  /* dry powder */
+  .dp-meter{flex:0 0 auto; width:200px; text-align:center}
+  .dp-label{font-family:var(--disp); font-weight:700; font-size:18px; margin-top:-8px}
+  .dp-stats{flex:1; min-width:170px; display:grid; grid-template-columns:1fr 1fr; gap:9px}
+  .dp-stat .k{font-size:9.5px; color:var(--muted-2); font-family:var(--mono); letter-spacing:.5px; text-transform:uppercase}
+  .dp-stat .v{font-family:var(--mono); font-weight:600; font-size:15px; margin-top:2px}
+  .dp-rec{margin-top:13px; background:var(--act-dim); border:1px solid rgba(47,191,113,.3); border-radius:var(--r-sm); padding:12px 13px}
+  .dp-rec.wait{background:var(--watch-dim); border-color:rgba(232,169,59,.35)}
+  .dp-rec .h{font-family:var(--mono); font-size:10px; letter-spacing:1px; text-transform:uppercase; color:var(--muted)}
+  .dp-rec .b{font-family:var(--disp); font-weight:700; font-size:17px; margin-top:4px}
+  .deploy-split{display:flex; flex-direction:column; gap:7px; margin-top:11px}
+  .deploy-split .ds{display:flex; align-items:center; gap:10px; font-size:13px}
+  .deploy-split .ds .bar{flex:1; height:7px; border-radius:5px; background:var(--line-soft); overflow:hidden}
+  .deploy-split .ds .bar i{display:block; height:100%; background:var(--act); opacity:.85}
+  .deploy-split .ds .amt{font-family:var(--mono); min-width:96px; text-align:right; font-weight:500}
+
+  /* event radar */
+  .radar{display:flex; flex-direction:column; gap:9px}
+  .ev{display:flex; gap:12px; align-items:center; background:var(--panel-2); border:1px solid var(--line-soft); border-radius:11px; padding:11px 12px}
+  .ev .cd{flex:0 0 auto; text-align:center; min-width:78px}
+  .ev .cd .big{font-family:var(--mono); font-weight:700; font-size:17px; line-height:1; letter-spacing:-.5px}
+  .ev .cd .lab{font-size:8.5px; color:var(--muted-2); font-family:var(--mono); letter-spacing:.5px; margin-top:3px; text-transform:uppercase}
+  .ev .body{flex:1; min-width:0}
+  .ev .body .nm{font-weight:600; font-size:13.5px}
+  .ev .body .desc{font-size:11px; color:var(--muted); margin-top:2px}
+  .ev .imp{font-size:9px; font-family:var(--mono); letter-spacing:.5px; padding:2px 7px; border-radius:20px; text-transform:uppercase}
+
+  /* committee */
+  .verdict-box{text-align:center; padding:6px 0 4px}
+  .verdict-box .v{font-family:var(--disp); font-weight:700; font-size:24px}
+  .verdict-box .meta{font-family:var(--mono); font-size:11px; color:var(--muted); margin-top:4px}
+  .consensus{height:10px; border-radius:6px; background:var(--line-soft); overflow:hidden; margin:12px 0 4px}
+  .consensus i{display:block; height:100%; border-radius:6px}
+  .vote-card{margin-top:14px; border:1.5px solid var(--line); border-radius:11px; padding:14px; background:var(--panel-2)}
+  .vote-h{font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted-2); font-family:var(--mono)}
+  .vote-tally{font-family:var(--disp); font-size:18px; font-weight:700; margin-top:5px}
+  .vote-sub{font-size:12px; color:var(--muted); margin-top:3px}
+  .seat-tbl{width:100%; border-collapse:collapse; margin-top:11px; font-size:12.5px}
+  .seat-tbl th{text-align:left; font-weight:500; color:var(--muted-2); font-size:10px; text-transform:uppercase; letter-spacing:.05em; padding:4px 8px; border-bottom:1px solid var(--line)}
+  .seat-tbl td{padding:7px 8px; border-bottom:1px solid var(--line-soft); vertical-align:top}
+  /* Phone: the 6-column vote table won't fit a narrow screen, so stack each seat into a labelled card. */
+  @media(max-width:560px){
+    .seat-tbl thead{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap}
+    .seat-tbl, .seat-tbl tbody, .seat-tbl tr, .seat-tbl td{display:block; width:auto}
+    .seat-tbl tr{border:1px solid var(--line); border-radius:9px; padding:8px 4px; margin-top:9px}
+    .seat-tbl td{border:none; position:relative; padding:4px 10px 4px 40%; min-height:19px; text-align:left; font-size:12px}
+    .seat-tbl td::before{content:attr(data-label); position:absolute; left:10px; top:4px; width:32%; color:var(--muted-2); font-size:10px; text-transform:uppercase; letter-spacing:.04em; line-height:1.5}
+    .seat-tbl td.seat-name{padding:0 10px 7px; font-family:var(--disp); font-weight:700; font-size:14px; border-bottom:1px solid var(--line-soft); margin-bottom:3px}
+    .seat-tbl td.seat-name::before{display:none}
+  }
+  .geo-card{margin-top:14px; border:1.5px solid rgba(124,162,255,.40); border-radius:11px; padding:14px; background:rgba(124,162,255,.07)}
+  .geo-h{font-size:13px; font-weight:700; color:#a9c2ff}
+  .lowconf{background:var(--risk-dim); border:1px solid rgba(229,72,77,.35); border-radius:var(--r-sm); padding:9px 11px; font-size:12px; margin-top:10px}
+  .synth{margin-top:12px; border:1.5px solid var(--line); border-radius:11px; background:var(--panel-2); padding:13px}
+  .alert{background:var(--panel-2); border:1px solid var(--line-soft); border-radius:var(--r-sm); padding:11px 12px; margin-top:9px}
+  .alert .ah{display:flex; justify-content:space-between; align-items:baseline; gap:8px}
+  .alert .atitle{font-weight:600; font-size:13px}
+  .alert .asev{font-family:var(--mono); font-size:10px; letter-spacing:.06em; font-weight:700}
+  .alert .awhy{font-size:12px; color:var(--muted); margin-top:4px}
+  .alert .aact{font-size:12.5px; margin-top:5px}
+  .alert .abtns{display:flex; gap:8px; margin-top:9px}
+  .alert .abtns button{background:transparent; border:1px solid var(--line); color:var(--muted); border-radius:7px; padding:4px 10px; font-size:11px; cursor:pointer}
+  .alert .abtns button:hover{color:var(--text); border-color:var(--muted)}
+  .alert-toggles{display:grid; grid-template-columns:1fr 1fr; gap:7px}
+  .alert-toggles label{display:flex; align-items:center; gap:8px; font-size:12.5px; background:var(--panel-2); border:1px solid var(--line-soft); border-radius:8px; padding:8px 10px; cursor:pointer}
+  .alert-toggles input{width:16px; height:16px; accent-color:var(--act)}
+  .src-row{display:flex; align-items:center; gap:9px; padding:8px 0; border-top:1px solid var(--line-soft); font-size:13px}
+  .src-row:first-child{border-top:none}
+  .src-row .sdot{width:9px; height:9px; border-radius:50%; flex:none}
+  .src-row .slabel{flex:1; min-width:0}
+  .src-row .sstat{font-family:var(--mono); font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.03em}
+  .src-row .snote{font-size:11px; color:var(--muted-2); font-family:var(--mono)}
+  .chk-summary{display:flex; align-items:center; gap:10px; margin:13px 0 4px; padding:11px 12px; border:1px solid var(--line); border-radius:10px; background:var(--panel-2)}
+  .chk-summary .big{font-family:var(--mono); font-size:15px; font-weight:700; letter-spacing:.05em}
+  .chk-row{display:flex; align-items:flex-start; gap:9px; padding:8px 0; border-top:1px solid var(--line-soft); font-size:12.5px}
+  .chk-row .cdot{width:9px; height:9px; border-radius:50%; margin-top:4px; flex:none}
+  .chk-row .clabel{font-weight:600; min-width:150px}
+  .chk-row .cmsg{color:var(--muted); flex:1}
+  .synth-h{font-family:var(--mono); font-size:11px; letter-spacing:.08em; color:var(--muted); text-transform:uppercase; margin-bottom:9px}
+  .synth-row{display:grid; grid-template-columns:130px 1fr; gap:10px; font-size:12.5px; padding:7px 0; border-top:1px solid var(--line-soft); align-items:start}
+  .synth-row:first-of-type{border-top:none}
+  .synth-row .sl{font-family:var(--mono); font-size:10.5px; letter-spacing:.05em; text-transform:uppercase}
+  .jrow{background:var(--panel-2); border:1px solid var(--line-soft); border-radius:var(--r-sm); padding:11px 12px; margin-top:9px}
+  .jrow .jhead{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:5px}
+  .jrow .jdate{font-family:var(--mono); font-size:11px; color:var(--muted)}
+  .jrow .jverdict{font-family:var(--mono); font-size:12px; font-weight:700}
+  .jrow .jcond{font-family:var(--mono); font-size:10.5px; color:var(--muted-2); margin-bottom:7px}
+  .jrow .jline{font-size:12.5px; margin-top:3px}
+  .jrow .jline .jlab{display:inline-block; min-width:92px; color:var(--muted); font-size:11px}
+  .toggle-line{text-align:center; margin-top:12px}
+  .toggle-line button{font-family:var(--mono); font-size:11px; color:var(--data); background:transparent; border:1px solid var(--line); border-radius:20px; padding:6px 14px}
+  .model-log{margin-top:12px; display:none}
+  .model-log.open{display:block}
+  .ml-row{background:var(--panel-2); border:1px solid var(--line-soft); border-radius:var(--r-sm); padding:10px 11px; margin-top:8px}
+  .ml-row .who{display:flex; align-items:center; gap:8px; font-family:var(--disp); font-weight:600; font-size:13px}
+  .ml-row .who .tag{font-family:var(--mono); font-size:9px; color:var(--muted); border:1px solid var(--line); padding:1px 6px; border-radius:4px; margin-left:auto}
+  .verdict-btns{display:flex; flex-wrap:wrap; gap:5px; margin-top:8px}
+  .vb{font-family:var(--mono); font-size:10px; padding:6px 9px; border-radius:7px; border:1px solid var(--line); background:var(--ink); color:var(--muted)}
+  .vb.sel{color:#0B0E14; font-weight:700}
+  .grand{margin-top:14px; border:1.5px solid var(--data); border-radius:11px; background:var(--data-dim); padding:14px}
+  .grand .h{font-family:var(--mono); font-size:11px; letter-spacing:1.5px; color:#bcdcff; text-transform:uppercase}
+  .grand .b{font-family:var(--disp); font-weight:700; font-size:20px; margin-top:8px; line-height:1.2}
+  .grand .split{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px}
+  .grand .split .s{font-family:var(--mono); font-size:13px; background:var(--ink); border:1px solid var(--line); border-radius:8px; padding:8px 11px}
+  .packet-box{width:100%; min-height:120px; background:var(--ink); color:var(--muted); border:1px solid var(--line); border-radius:8px; padding:11px; font-family:var(--mono); font-size:11px; resize:vertical; margin-top:10px}
+  .ai-links{display:flex; flex-wrap:wrap; gap:7px; margin-top:9px}
+  .ai-links a, .ai-links button{font-family:var(--mono); font-size:11px; text-decoration:none; color:#bcdcff; border:1px solid rgba(76,166,255,.35); background:var(--data-dim); padding:7px 11px; border-radius:7px}
+
+  /* behaviour */
+  .behaviour{border-color:rgba(232,169,59,.4); background:linear-gradient(180deg,var(--watch-dim),var(--panel))}
+  .behaviour.high{border-color:rgba(229,72,77,.45); background:linear-gradient(180deg,var(--risk-dim),var(--panel))}
+  .behaviour ul{margin:8px 0 0; padding-left:18px; font-size:12.5px}
+  .behaviour li{margin:5px 0}
+  .behaviour .blunt{font-size:13.5px; font-weight:500; margin-top:10px; line-height:1.4}
+
+  /* idiot guide */
+  .guide{margin-top:16px; border:1.5px solid var(--data); border-radius:var(--r); background:var(--panel); color:var(--text); overflow:hidden; box-shadow:0 0 24px rgba(0,229,255,.12)}
+  .guide .hd{background:var(--ink); color:var(--text); padding:13px 16px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--line)}
+  .guide .hd h2{font-size:14px; font-weight:700; letter-spacing:.5px; color:var(--data); text-shadow:0 0 12px rgba(0,229,255,.5)}
+  .guide .hd .stamp{font-family:var(--mono); font-size:9.5px; letter-spacing:1.5px; color:var(--muted)}
+  .guide .bd{padding:14px}
+  .gcard{border-radius:11px; padding:13px 14px; margin-bottom:10px; border:1.5px solid}
+  .gcard:last-child{margin-bottom:0}
+  .gcard .glab{font-family:var(--mono); font-size:10px; letter-spacing:1.5px; text-transform:uppercase; font-weight:700; margin-bottom:6px}
+  .gcard .gmain{font-family:var(--disp); font-weight:700; font-size:18px; line-height:1.15; color:var(--text)}
+  .gcard ul{margin:7px 0 0; padding-left:19px}
+  .gcard li{font-size:14px; font-weight:500; margin:4px 0; color:var(--text)}
+  .gcard.do{background:var(--act-dim); border-color:var(--act); box-shadow:0 0 16px rgba(22,255,158,.1)} .gcard.do .glab{color:var(--act); text-shadow:0 0 10px rgba(22,255,158,.5)}
+  .gcard.dont{background:var(--risk-dim); border-color:var(--risk); box-shadow:0 0 16px rgba(255,46,99,.1)} .gcard.dont .glab{color:var(--risk); text-shadow:0 0 10px rgba(255,46,99,.5)}
+  .gcard.check{background:var(--watch-dim); border-color:var(--watch); box-shadow:0 0 16px rgba(255,196,0,.1)} .gcard.check .glab{color:var(--watch); text-shadow:0 0 10px rgba(255,196,0,.5)}
+  .gcard .why{font-size:13px; color:var(--muted); margin-top:7px; font-weight:400}
+
+  /* modal */
+  .modal-bg{position:fixed; inset:0; background:rgba(5,7,11,.72); backdrop-filter:blur(3px); display:none; align-items:flex-end; justify-content:center; z-index:50}
+  .modal-bg.open{display:flex}
+  .modal{background:var(--panel); border:1px solid var(--line); border-radius:18px 18px 0 0; width:100%; max-width:760px; max-height:92vh; overflow:auto; padding:18px 16px calc(26px + env(safe-area-inset-bottom))}
+  @media(min-width:560px){.modal-bg{align-items:center; padding:20px} .modal{border-radius:18px}}
+  .modal h2{font-size:16px; margin-bottom:3px}
+  .modal .mh{display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14px}
+  .modal .x{background:var(--panel-2); border:1px solid var(--line); border-radius:8px; width:34px; height:34px; font-size:18px; color:var(--muted)}
+  .field{margin:11px 0}
+  .field label{display:block; font-size:11.5px; color:var(--muted); margin-bottom:5px; font-family:var(--mono); letter-spacing:.3px}
+  .field input,.field select{width:100%; background:var(--ink); border:1px solid var(--line); border-radius:8px; padding:11px 12px; color:var(--text); font-family:var(--mono); font-size:14px}
+  .field input:focus,.field select:focus{outline:none; border-color:var(--data)}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:11px}
+  .grid3{display:grid; grid-template-columns:1fr 1fr 1fr; gap:9px}
+  .sub-h{font-family:var(--mono); font-size:10px; letter-spacing:1.5px; color:var(--muted-2); text-transform:uppercase; margin:18px 0 4px; border-top:1px solid var(--line-soft); padding-top:14px}
+  .save-bar{position:sticky; bottom:-1px; background:var(--panel); padding-top:12px; margin-top:18px}
+  .hint{font-size:11px; color:var(--muted-2); margin-top:5px; line-height:1.4}
+
+  footer{margin-top:22px; padding:14px 4px 0; border-top:1px solid var(--line-soft); font-size:10.5px; color:var(--muted-2); line-height:1.5}
+  .toast{position:fixed; left:50%; bottom:24px; transform:translateX(-50%) translateY(20px); background:var(--panel-2); border:1px solid var(--line); color:var(--text); padding:11px 16px; border-radius:10px; font-size:13px; opacity:0; transition:.25s; z-index:60; pointer-events:none}
+  .toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
+  .spin{display:inline-block; width:13px; height:13px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation:s .7s linear infinite}
+  @keyframes s{to{transform:rotate(360deg)}}
+  @media(prefers-reduced-motion:reduce){*{animation-duration:.001s!important; transition:none!important}}
+  .tl .body .act{text-shadow:0 0 16px currentColor}
+  .tl .lamp .d.on{box-shadow:0 0 16px currentColor, 0 0 4px currentColor}
+  .meter .v, .verdict-box .v, .opp .sc{text-shadow:0 0 12px currentColor}
+  .summary .pv{text-shadow:0 0 22px rgba(0,229,255,.22)}
+  .mb .p{text-shadow:0 0 14px rgba(0,229,255,.1)}
+  :focus-visible{outline:2px solid var(--data); outline-offset:2px}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div>
+    <h1>INVESTING COMMAND CENTRE</h1>
+    <div class="sub">Andrew Collins · markets, portfolio &amp; capital deployment · advice only, you approve every trade</div>
+  </div>
+  <div class="conf">
+    <span class="pill" id="confPill">DATA —</span>
+    <span class="num" id="lastRefresh" style="font-size:10px">never refreshed</span>
+  </div>
+</header>
+
+<!-- PORTFOLIO SUMMARY -->
+<div class="summary">
+  <div class="lab">Portfolio Value</div>
+  <div class="pv" id="pv">$0<span class="bhd" id="pvBhd">/ BD 0</span></div>
+  <div class="grid">
+    <div class="g"><div class="k">Today P/L</div><div class="v" id="dayPl">—</div></div>
+    <div class="g"><div class="k">Total P/L</div><div class="v" id="totPl">—</div></div>
+    <div class="g"><div class="k">Cash</div><div class="v" id="cashV">—</div></div>
+    <div class="g"><div class="k">Cash %</div><div class="v" id="cashPc">—</div></div>
+    <div class="g"><div class="k">Dry powder</div><div class="v" id="dryV">—</div></div>
+  </div>
+</div>
+
+<!-- CONVICTION GATE -->
+<div id="convictionGate"></div>
+
+<!-- TRAFFIC LIGHT -->
+<div class="tl" id="trafficLight">
+  <div class="lamp"><div class="d" id="lampR" style="color:var(--risk)"></div><div class="d" id="lampA" style="color:var(--watch)"></div><div class="d" id="lampG" style="color:var(--act)"></div></div>
+  <div class="body"><div class="act" id="tlAction">—</div><div class="why" id="tlWhy">Enter your portfolio to get a decision.</div></div>
+</div>
+
+<!-- BEHAVIOUR -->
+<section class="card behaviour" id="bhvCard" style="display:none">
+  <h2>⚠ BEHAVIOUR CHECK</h2>
+  <ul id="bhvList"></ul>
+  <div class="blunt" id="bhvBlunt"></div>
+</section>
+
+<!-- ACTIONS -->
+<div class="actions">
+  <button class="btn primary" id="refreshBtn"><span class="ico">↻</span> REFRESH LIVE DATA</button>
+  <button class="btn run" id="deepBtn"><span class="ico">▶</span> RUN DEEP TRIGGERS</button>
+</div>
+<div class="util-row">
+  <button class="btn sm" id="editBtn">✎ Edit portfolio</button>
+  <button class="btn sm" id="setBtn">⚙ Settings &amp; market data</button>
+</div>
+
+<!-- METERS -->
+<div class="meters">
+  <div class="meter"><div class="k">Health /10</div><div class="gz" id="gHealth"></div><div class="v" id="vHealth">—</div></div>
+  <div class="meter"><div class="k">Market Danger</div><div class="gz" id="gDanger"></div><div class="v" id="vDanger">—</div></div>
+  <div class="meter"><div class="k">Opportunity</div><div class="gz" id="gOpp"></div><div class="v" id="vOpp">—</div></div>
+</div>
+<div class="chips">
+  <div class="chip"><div class="k">Cash Drag</div><div class="v" id="chCash">—</div></div>
+  <div class="chip"><div class="k">Fear &amp; Greed</div><div class="v" id="chFg">—</div></div>
+  <div class="chip"><div class="k">Status</div><div class="v" id="chStatus">—</div></div>
+</div>
+
+<!-- ALERTS -->
+<section class="card" id="alertsCard">
+  <h2 style="display:flex;align-items:center;gap:7px"><span class="dot" style="background:var(--watch)"></span> ALERTS <span id="alertCount" class="pill" style="margin-left:auto;font-size:11px">clear</span></h2>
+  <div id="alertsList" style="margin-top:4px"></div>
+</section>
+
+<!-- MARKET DASHBOARD -->
+<section class="card">
+  <h2><span class="dot" style="background:var(--data)"></span> MARKET DASHBOARD</h2>
+  <div class="card-note" id="mktNote">One-glance market view. Enter levels in Settings or connect a price source.</div>
+  <div class="mkt-big" id="mktBig"></div>
+</section>
+
+<!-- MACRO: CPI / FED / SENTIMENT -->
+<section class="card">
+  <h2><span class="dot" style="background:var(--watch)"></span> CPI · FED · SENTIMENT</h2>
+  <div class="macro" id="macroGrid"></div>
+  <div class="means"><b>What this means for Andrew</b><span id="macroMeans">—</span></div>
+</section>
+
+<!-- NEWS -->
+<section class="card" id="newsCard" style="display:none">
+  <h2><span class="dot" style="background:var(--data)"></span> MARKET HEADLINES</h2>
+  <div id="newsList"></div>
+</section>
+
+<!-- WHAT CHANGED -->
+<section class="card">
+  <h2><span class="dot" style="background:var(--data)"></span> WHAT CHANGED SINCE YESTERDAY</h2>
+  <div class="card-note" id="changedNote">Refresh on different days to see day-over-day moves.</div>
+  <div class="delta-grid" id="deltaGrid"></div>
+  <div class="means"><b>What this means for Andrew</b><span id="changedMeans">—</span></div>
+</section>
+
+<!-- MARKET DANGER SCORE -->
+<section class="card">
+  <h2><span class="dot" style="background:var(--risk)"></span> MARKET DANGER SCORE</h2>
+  <div class="card-note">0–100. What's actually risky right now, and why.</div>
+  <div id="dangerBreakdown"></div>
+  <div class="means"><b>What this means for Andrew</b><span id="dangerMeans">—</span></div>
+</section>
+
+<!-- OPPORTUNITY SCORES -->
+<section class="card">
+  <h2><span class="dot" style="background:var(--act)"></span> OPPORTUNITY SCORES</h2>
+  <div class="card-note">0–100 per asset — how attractive it is to add today, given price, weight and fear.</div>
+  <div class="opp-grid" id="oppGrid"></div>
+  <div class="means"><b>What this means for Andrew</b><span id="oppMeans">—</span></div>
+</section>
+
+<!-- PORTFOLIO -->
+<section class="card">
+  <h2><span class="dot" style="background:var(--data)"></span> PORTFOLIO (eToro)</h2>
+  <div class="card-note" id="pfNote">Manual holdings. Connect a price source in Settings for live values.</div>
+  <table><thead><tr><th>Holding</th><th>Value</th><th>P/L</th><th>Now %</th><th>Target</th></tr></thead><tbody id="pfBody"></tbody></table>
+  <div class="pie-row"><div class="pie"><div id="portfolioPie"></div></div><div class="pie-legend" id="pieLegend"></div></div>
+  <div style="margin-top:6px"><div class="eyebrow" style="margin:14px 0 8px">Now vs target</div><div class="alloc" id="allocWrap"></div></div>
+  <div class="means"><b>What this means for Andrew</b><span id="pfMeans">—</span></div>
+</section>
+
+<!-- DRY POWDER -->
+<section class="card">
+  <h2><span class="dot" id="dpDot"></span> DRY POWDER ENGINE</h2>
+  <div class="pie-row" style="align-items:flex-start">
+    <div class="dp-meter"><div id="cashMeter"></div><div class="dp-label" id="cashMeterLabel">—</div></div>
+    <div class="dp-stats">
+      <div class="dp-stat"><div class="k">Current cash</div><div class="v" id="dpCash">—</div></div>
+      <div class="dp-stat"><div class="k">Target cash</div><div class="v" id="dpTarget">—</div></div>
+      <div class="dp-stat"><div class="k">Deployable</div><div class="v" id="dpDeployable">—</div></div>
+      <div class="dp-stat"><div class="k">Cash drag</div><div class="v" id="dpDrag">—</div></div>
+    </div>
+  </div>
+  <div class="dp-rec" id="dpRec"><div class="h">Recommendation</div><div class="b" id="dpRecB">—</div></div>
+  <div class="deploy-split" id="deploySplit"></div>
+  <div class="means"><b>What this means for Andrew</b><span id="dpMeans">—</span></div>
+</section>
+
+<!-- EVENT RADAR -->
+<section class="card">
+  <h2><span class="dot" style="background:var(--watch)"></span> EVENT RADAR</h2>
+  <div class="card-note">Live countdowns. Set dates in Settings.</div>
+  <div class="radar" id="radar"></div>
+  <div class="means"><b>What this means for Andrew</b><span id="radarMeans">—</span></div>
+</section>
+
+<!-- DEEP TRIGGERS / COMMITTEE -->
+<section class="card" id="deepCard" style="display:none">
+  <h2><span class="dot" style="background:var(--act)"></span> AI COMMITTEE</h2>
+  <div class="card-note">Verdict first. Models advise, you approve.</div>
+  <div class="verdict-box"><div class="eyebrow">Consensus verdict</div><div class="v" id="committeeVerdict">NOT RUN</div><div class="meta" id="committeeMeta">Press Run Deep Triggers, then log each model's call.</div></div>
+  <div class="consensus"><i id="consensusBar"></i></div>
+  <div id="lowConfWrap"></div>
+  <div class="toggle-line"><button id="expandModels">Expand details ▾</button></div>
+  <div class="model-log" id="modelLog"></div>
+  <div id="grandWrap"></div>
+  <div id="packetWrap"></div>
+</section>
+
+<!-- IDIOT'S GUIDE -->
+<div class="guide">
+  <div class="hd"><h2>WHAT DO I DO NOW?</h2><span class="stamp" id="guideStamp">—</span></div>
+  <div class="bd" id="guideBody"></div>
+</div>
+
+<!-- DECISION JOURNAL -->
+<section class="card" id="journalCard">
+  <h2><span class="dot" style="background:var(--data)"></span> DECISION JOURNAL</h2>
+  <div style="font-size:12px;color:var(--muted);margin:2px 0 10px">Every Deep Triggers run is logged. Record what you actually did and the outcome — over time this surfaces whether you wait too long, hoard cash or chase red days.</div>
+  <div id="journalList"></div>
+  <div class="means" style="margin-top:10px"><b>Behaviour read</b><span id="journalPattern">—</span></div>
+</section>
+
+<!-- DATA SOURCE / CONFIDENCE + SYSTEM CHECK -->
+<section class="card" id="diagCard">
+  <h2 style="display:flex;align-items:center;gap:7px"><span class="dot" style="background:var(--data)"></span> DATA SOURCE / CONFIDENCE <button class="btn sm" id="sysCheckBtn" style="margin-left:auto;border:1px solid var(--line)">RUN SYSTEM CHECK</button></h2>
+  <div id="sourcePanel"></div>
+  <div class="hint" style="margin-top:9px">Live = fetched now · Manual = you entered · Calculated = derived from inputs · Stale = older than 4h · Missing = no value. The scores (Market Danger, Opportunity, Deployment, Health) are always <b>calculated</b> from the inputs above — never placeholders.</div>
+  <div id="sysCheckResult"></div>
+</section>
+
+<footer>
+  Investing Command Centre runs as a separate app from Andy OS — if a data source fails it degrades but does not crash, and never shows stale data as live.<br>
+  Every number comes from what <b>you</b> enter or connect. This is a market-intelligence and deployment cockpit, not personalised financial advice or a regulated recommendation. No auto-trading, leverage, options or shorting. Verify before you act.
+</footer>
+
+<!-- EDIT PORTFOLIO MODAL -->
+<div class="modal-bg" id="editModal"><div class="modal">
+  <div class="mh"><div><h2>Edit portfolio</h2><div class="sub" style="font-size:11px;color:var(--muted)">Units + average cost. Leave price blank to use live data.</div></div><button class="x" data-close>×</button></div>
+  <div id="editHoldings"></div>
+  <div class="sub-h">Cash</div>
+  <div class="grid2">
+    <div class="field"><label>Available cash ($)</label><input type="number" id="in_cash" step="any"></div>
+    <div class="field"><label>Reserve to keep ($) — not deployable</label><input type="number" id="in_reserve" step="any"></div>
+  </div>
+  <div class="save-bar"><button class="btn primary" id="savePortfolio">Save portfolio</button></div>
+</div></div>
+
+<!-- JOURNAL EDIT MODAL -->
+<div class="modal-bg" id="journalModal"><div class="modal">
+  <div class="mh"><div><h2>Log this decision</h2><div class="sub" style="font-size:11px;color:var(--muted)" id="journalEditMeta">—</div></div><button class="x" data-close>×</button></div>
+  <div class="field"><label>What did you actually do?</label><input type="text" id="j_action" placeholder="e.g. Deployed $400 into VOO / Did nothing / Waited"></div>
+  <div class="field"><label>Notes (optional)</label><textarea id="j_notes" rows="2" placeholder="Why you made that call"></textarea></div>
+  <div class="field"><label>Outcome (fill in later)</label><input type="text" id="j_outcome" placeholder="e.g. Market dropped 2% next week — glad I waited"></div>
+  <div class="save-bar"><button class="btn primary" id="saveJournal">Save to journal</button></div>
+</div></div>
+
+<!-- SETTINGS MODAL -->
+<div class="modal-bg" id="setModal"><div class="modal">
+  <div class="mh"><div><h2>Settings &amp; market data</h2></div><button class="x" data-close>×</button></div>
+
+  <div class="sub-h">Currency</div>
+  <div class="field"><label>Exchange rate — 1 BHD = ? USD</label><input type="number" id="s_fx" step="any"><div class="hint">Shows every value in $ and BD. Default 2.65.</div></div>
+
+  <div class="sub-h">Target allocation % (~100)</div>
+  <div class="grid3" id="targetInputs"></div>
+  <div class="hint" id="targetSum">—</div>
+
+  <div class="sub-h">Live price source (optional)</div>
+  <div class="field"><label>Finnhub API key — free key works in-browser for US ETFs/stocks</label><input type="text" id="s_finnhub" placeholder="leave blank for manual prices"><div class="hint">Used only on your device. VIX, yields &amp; macro are manual.</div></div>
+
+  <div class="sub-h">Market levels</div>
+  <div class="grid3">
+    <div class="field"><label>S&amp;P 500</label><input type="number" id="m_spx" step="any"></div>
+    <div class="field"><label>Nasdaq 100</label><input type="number" id="m_ndx" step="any"></div>
+    <div class="field"><label>VIX</label><input type="number" id="m_vix" step="any"></div>
+    <div class="field"><label>2Y yield %</label><input type="number" id="m_2y" step="any"></div>
+    <div class="field"><label>10Y yield %</label><input type="number" id="m_10y" step="any"></div>
+    <div class="field"><label>Dollar index</label><input type="number" id="m_dxy" step="any"></div>
+  </div>
+
+  <div class="sub-h">Macro &amp; sentiment</div>
+  <div class="grid2">
+    <div class="field"><label>Latest CPI YoY %</label><input type="number" id="x_cpi" step="any"></div>
+    <div class="field"><label>Prior CPI YoY %</label><input type="number" id="x_cpi_prev" step="any"></div>
+    <div class="field"><label>Fed funds rate %</label><input type="number" id="x_fed_rate" step="any"></div>
+    <div class="field"><label>Rate-cut probability % (next mtg)</label><input type="number" id="x_cutprob" step="any"></div>
+    <div class="field"><label>Fear &amp; Greed (0–100)</label><input type="number" id="x_fg" step="any"></div>
+    <div class="field"><label>Market breadth — % above 200d MA</label><input type="number" id="x_breadth" step="any"></div>
+  </div>
+  <div class="field"><label>CPI / inflation risk</label><select id="x_cpirisk"><option>Low</option><option>Medium</option><option>High</option></select></div>
+  <div class="field"><label>Top market driver / news note</label><input type="text" id="x_news" placeholder="e.g. CPI tomorrow, AI capex in focus"></div>
+
+  <div class="sub-h">Backend / proxy (optional)</div>
+  <div class="field"><label>Backend URL — secure data + AI proxy</label><input type="text" id="s_backend" placeholder="https://your-backend  ·  blank = manual / direct"><div class="hint">When set, Refresh and Deep Triggers pull live prices, market, macro, news and AI consensus from your backend — keys stay server-side. Blank keeps manual entry + the copy/paste AI packet.</div></div>
+
+  <div class="sub-h">Event dates &amp; times</div>
+  <div id="eventInputs"></div>
+
+  <div class="sub-h">Alerts — turn each type on/off</div>
+  <div class="hint" style="margin-bottom:6px">Alerts are in-app only and stay quiet unless something needs a decision. No email/SMS/push.</div>
+  <div id="alertToggles" class="alert-toggles"></div>
+
+  <div class="save-bar"><button class="btn primary" id="saveSettings">Save settings</button></div>
+</div></div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+/* ───────── palette + dynamic ticker metadata ───────── */
+const C={ink:"#05070E",panel:"#0D1220",panel2:"#141C2E",line:"#27344E",text:"#EAF1FB",muted:"#8893AC",mut2:"#5b6480",act:"#16FF9E",watch:"#FFC400",risk:"#FF2E63",hold:"#8691A8",data:"#00E5FF"};
+const MONO="'JetBrains Mono',monospace";
+const NEON=["#00E5FF","#C77DFF","#76FF03","#2EE6C4","#FFD23F","#FF5DA2","#5BE0FF","#B388FF","#39FF14","#FF8A5B","#7CFFCB","#FFE600"];
+const CASH_COLOR="#8691A8";
+// Known tickers get a friendly name + type. Unknown tickers still work (type "other").
+const META={
+  VOO:{name:"S&P 500 core",type:"broad"}, VTI:{name:"Total US market",type:"broad"}, VT:{name:"Total world",type:"broad"}, SPY:{name:"S&P 500",type:"broad"},
+  QQQ:{name:"Nasdaq 100",type:"growth"}, QQQM:{name:"Nasdaq 100",type:"growth"},
+  SCHD:{name:"US dividend",type:"dividend"}, VYM:{name:"High dividend",type:"dividend"},
+  VXUS:{name:"Total international",type:"region"}, AIA:{name:"Asia 50",type:"region"}, INDA:{name:"India (MSCI)",type:"region"}, EEM:{name:"Emerging markets",type:"region"}, VWO:{name:"Emerging markets",type:"region"}, IEFA:{name:"Developed ex-US",type:"region"},
+  MSFT:{name:"Microsoft",type:"stock"}, AAPL:{name:"Apple",type:"stock"}, GOOGL:{name:"Alphabet",type:"stock"}, AMZN:{name:"Amazon",type:"stock"}, META:{name:"Meta",type:"stock"},
+  NVDA:{name:"NVIDIA",type:"stockHi"}, TSLA:{name:"Tesla",type:"stockHi"}, AMD:{name:"AMD",type:"stockHi"}
+};
+const TYPE={
+  broad:{stability:8,cap:1.0,label:"broad ETF"}, growth:{stability:3,cap:0.7,label:"growth ETF"},
+  dividend:{stability:8,cap:1.0,label:"dividend ETF"}, region:{stability:5,cap:0.6,label:"region ETF"},
+  stock:{stability:6,cap:0.45,label:"single stock"}, stockHi:{stability:-12,cap:0.18,label:"volatile stock"},
+  other:{stability:4,cap:0.6,label:"holding"}
+};
+function meta(sym){const m=META[sym]||{};const t=m.type||"other";return {name:m.name||sym,type:t,...TYPE[t]};}
+function isStock(sym){const t=meta(sym).type;return t==="stock"||t==="stockHi";}
+function syms(){return Object.keys(S.holdings);}
+function colorFor(sym){const i=syms().indexOf(sym);return NEON[(i<0?0:i)%NEON.length];}
+
+/* ───────── persistence ───────── */
+const KEY="andy_invest_v4"; let mem={};
+const store={load(){try{const r=localStorage.getItem(KEY);return r?JSON.parse(r):null;}catch(e){return mem[KEY]||null;}},save(o){try{localStorage.setItem(KEY,JSON.stringify(o));}catch(e){mem[KEY]=o;}}};
+
+const VERDICTS=["BUY AGGRESSIVELY","DEPLOY ON PLAN","BUY GRADUALLY","WATCH","HOLD","WAIT","REDUCE RISK"];
+const VERDICT_STANCE={"BUY AGGRESSIVELY":6,"DEPLOY ON PLAN":5,"BUY GRADUALLY":4,"WATCH":3,"HOLD":2,"WAIT":1,"REDUCE RISK":0};
+const VERDICT_COLOR={"BUY AGGRESSIVELY":C.act,"DEPLOY ON PLAN":C.act,"BUY GRADUALLY":C.act,"WATCH":C.watch,"HOLD":C.hold,"WAIT":C.watch,"REDUCE RISK":C.risk};
+
+function defaults(){return{
+  // reference dev holdings (auto-populated from eToro once read-only sync is live)
+  holdings:{
+    VOO:{name:"S&P 500 core",units:3.6,avgCost:500,price:560},
+    QQQ:{name:"Nasdaq 100",units:1.85,avgCost:480,price:540},
+    NVDA:{name:"NVIDIA",units:4,avgCost:110,price:135},
+    MSFT:{name:"Microsoft",units:1.3,avgCost:400,price:470},
+    AIA:{name:"Asia 50",units:5,avgCost:75,price:80},
+    INDA:{name:"India (MSCI)",units:6.4,avgCost:52,price:55},
+    VXUS:{name:"Total international",units:5,avgCost:64,price:70}
+  },
+  cash:1900, reserve:0,
+  fx:2.65,
+  targets:{VOO:40,QQQ:18,MSFT:8,NVDA:6,VXUS:8,AIA:6,INDA:6,CASH:8},
+  finnhubKey:"", backendUrl:"", newsList:[],
+  market:{spx:null,ndx:null,vix:null,y2:null,y10:null,dxy:null,live:false},
+  macro:{cpi:null,cpiPrev:null,fedRate:null,cutProb:null,fg:null,breadth:null,cpiRisk:"Medium",news:""},
+  events:[
+    {name:"US CPI",date:"",time:"13:30",impact:"high",watch:"Inflation print — drives the Fed."},
+    {name:"US PPI",date:"",time:"13:30",impact:"med",watch:"Producer prices, CPI preview."},
+    {name:"Jobs report (NFP)",date:"",time:"13:30",impact:"high",watch:"Labour strength vs rate cuts."},
+    {name:"FOMC decision",date:"",time:"19:00",impact:"high",watch:"Rate decision + guidance."},
+    {name:"NVDA earnings",date:"",time:"21:00",impact:"high",watch:"Your biggest single-stock risk."},
+    {name:"MSFT earnings",date:"",time:"21:00",impact:"med",watch:"Cloud + AI capex read."}],
+  committee:{models:{ChatGPT:null,Claude:null,Gemini:null,Perplexity:null}},
+  source:"manual", etoroConnected:false, etoroDayPl:null, etoroTotalPl:null, etoroDayPlEst:false, etoroDayPlPct:null, etoroDayPlPartial:false,
+  history:[], journal:[],
+  alerts:{}, alertState:{}, alertSettings:{cashDrag:true,deploy:true,risk:true,events:true,drift:true,behaviour:true},
+  snapshots:{}, lastRefresh:null
+};}
+let S=Object.assign(defaults(),store.load()||{});
+S.targets=Object.assign({CASH:8},S.targets||{});
+S.market=Object.assign(defaults().market,S.market||{});
+S.macro=Object.assign(defaults().macro,S.macro||{});
+S.committee=S.committee||{models:{}}; S.committee.models=Object.assign(defaults().committee.models,S.committee.models||{});
+S.snapshots=S.snapshots||{}; S.holdings=S.holdings||{}; S.history=S.history||[]; S.journal=S.journal||[];
+S.alerts=S.alerts||{}; S.alertState=S.alertState||{}; S.alertSettings=Object.assign({cashDrag:true,deploy:true,risk:true,events:true,drift:true,behaviour:true},S.alertSettings||{});
+function persist(){store.save(S);writeSnapshot();}
+
+/* ───────── helpers ───────── */
+const $=id=>document.getElementById(id);
+const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
+const r0=n=>Math.round(n);
+function usd(n){return (n<0?"-":"")+"$"+Math.abs(r0(n)).toLocaleString();}
+function bhd(n){return "BD "+Math.abs(n/(S.fx||2.65)).toLocaleString(undefined,{maximumFractionDigits:0});}
+function dual(n){return usd(n)+' <span class="bhd">/ '+bhd(n)+'</span>';}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));}
+// A model may return a seat field (deploy, risk, key point) as an object/array instead of a string.
+// Render it as readable text instead of the literal "[object Object]".
+function asText(v){
+  if(v==null)return '';
+  if(typeof v==='string')return v;
+  if(Array.isArray(v))return v.map(asText).filter(Boolean).join(', ');
+  if(typeof v==='object')return Object.entries(v).map(([k,val])=>k+': '+asText(val)).filter(Boolean).join(', ');
+  return String(v);
+}
+function plClass(n){return n>1e-4?"pos":(n<-1e-4?"neg":"flat");}
+function timeAgo(t){const s=(Date.now()-t)/1000;if(s<60)return r0(s)+'s ago';if(s<3600)return r0(s/60)+'m ago';if(s<86400)return r0(s/3600)+'h ago';return r0(s/86400)+'d ago';}
+function toast(m){const t=$("toast");t.textContent=m;t.classList.add("show");clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove("show"),2400);}
+function todayKey(){return new Date().toISOString().slice(0,10);}
+function eventTs(e){if(!e.date)return null;return new Date(e.date+"T"+(e.time||"13:30")+":00Z").getTime();}
+function nextEvent(){let b=null;S.events.forEach(e=>{const ts=eventTs(e);if(ts!=null&&ts>=Date.now()&&(!b||ts<b.ts))b={...e,ts};});if(b)b.days=Math.max(0,Math.ceil((b.ts-Date.now())/86400000));return b;}
+function hex2rgba(hex,a){hex=hex.replace('#','');if(hex.length===3)hex=hex.split('').map(x=>x+x).join('');const n=parseInt(hex,16);return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;}
+
+/* ───────── SVG ───────── */
+function donut(segs,{size=150,thick=18,c1='',c2=''}={}){
+  const r=(size-thick)/2,cx=size/2,cy=size/2,circ=2*Math.PI*r;const total=segs.reduce((s,x)=>s+Math.max(0,x.value),0)||1;let off=0;
+  const arcs=segs.filter(s=>s.value>0).map(s=>{const f=s.value/total;const el=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.color}" stroke-width="${thick}" stroke-dasharray="${f*circ} ${circ-f*circ}" stroke-dashoffset="${-off}"/>`;off+=f*circ;return el;}).join('');
+  return `<svg viewBox="0 0 ${size} ${size}" width="100%" style="max-width:${size}px"><g transform="rotate(-90 ${cx} ${cy})"><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${C.line}" stroke-width="${thick}"/>${arcs}</g>`+
+    (c1?`<text x="${cx}" y="${cy-1}" text-anchor="middle" fill="${C.text}" font-family=${MONO} font-size="15" font-weight="700">${c1}</text>`:'')+
+    (c2?`<text x="${cx}" y="${cy+15}" text-anchor="middle" fill="${C.muted}" font-family=${MONO} font-size="9">${c2}</text>`:'')+`</svg>`;
+}
+function gaugeSemi(value,max,color){
+  const W=180,H=104,cx=90,cy=94,r=72,sw=15;const frac=clamp(value/max,0,1),a1=Math.PI*(1-frac);
+  const pt=a=>[cx+r*Math.cos(a),cy-r*Math.sin(a)];const[bx0,by0]=pt(Math.PI),[bx1,by1]=pt(0),[vx,vy]=pt(a1);
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:170px">
+    <path d="M ${bx0} ${by0} A ${r} ${r} 0 0 1 ${bx1} ${by1}" fill="none" stroke="${C.line}" stroke-width="${sw}" stroke-linecap="round"/>
+    <path d="M ${bx0} ${by0} A ${r} ${r} 0 0 1 ${vx} ${vy}" fill="none" stroke="${color}" stroke-width="${sw}" stroke-linecap="round"/>
+    <circle cx="${vx}" cy="${vy}" r="5.5" fill="${color}"/></svg>`;
+}
+
+/* ───────── compute engine (fully dynamic over holdings) ───────── */
+// CONVICTION GATE — sits between analysis and recommendation. Decides how much the system is
+// ALLOWED to recommend (DEPLOY / DEPLOY SMALL / WATCH / WAIT) based on data freshness, committee
+// integrity, contradictions between the engines, and pending event risk. It never lets the headline
+// sound more confident than the inputs justify. Returns {level, allowed, reasons[]}.
+function convictionGate(danger){
+  const reasons=[]; const red=t=>reasons.push({sev:'red',txt:t}); const amber=t=>reasons.push({sev:'amber',txt:t});
+  const synth=S.committee&&S.committee.synth;
+  // -- Committee integrity --
+  let committeeRun=false, macroFailed=false, geoFailed=false, collapsed=false, uniqueModels=null, seatsResp=null, seatsConf=null, usedFallback=false;
+  if(synth){
+    committeeRun=true;
+    const ss=Array.isArray(synth.seatStatus)?synth.seatStatus:[];
+    const ok=ss.filter(s=>s.status==='ok');
+    seatsConf=synth.seatsConfigured||ss.length||4;
+    seatsResp=synth.seatsResponded!=null?synth.seatsResponded:ok.length;
+    if(ss.length){
+      uniqueModels=new Set(ok.map(s=>String(s.modelUsed||s.model||'').toLowerCase())).size;
+      collapsed= ok.length>=2 && uniqueModels<=1;          // all responders ran on the same model
+      usedFallback= ss.some(s=>s.usedFallback);
+      const macro=ss.find(s=>/macro/i.test(s.seat||'')||/macro/i.test(s.role||''));
+      if(macro) macroFailed= macro.status!=='ok';
+    }
+    geoFailed= !synth.geoRisk || !!synth.geoRisk.error;     // geo officer didn't run / errored
+  }
+  // -- Data freshness --
+  const live=S.market.live, stale=isStale();
+  const haveMk=S.market.vix!=null||S.market.y10!=null||S.market.spx!=null;
+  const vixDailyClose= live && S.market.vix!=null;          // FRED VIX is a daily close — lags intraday
+  // -- News severity (keyword heuristic) --
+  const news=S.newsList||[];
+  const HI=/\b(war|invasion|invade|strikes?|attack|missile|nuclear|conflict|escalat\w*|hormuz|sanction\w*|crash|plunge|sell-?off|collapse|default|crisis|shock|tumble)\b/i;
+  const WAR=/\b(war|strikes?|attack|missile|invasion|hormuz|conflict|escalat\w*|nuclear)\b/i;
+  const txt=n=>String((n&&(n.headline||n))||'');
+  const sevHits=news.filter(n=>HI.test(txt(n))).length;
+  const newsSeverity= sevHits>=2?'high':sevHits===1?'medium':'low';
+  const warHeadline=news.some(n=>WAR.test(txt(n)));
+  // -- Index move vs prior snapshot --
+  const keys=Object.keys(S.snapshots||{}).sort(), prevKey=keys.filter(k=>k<todayKey()).pop(), prev=prevKey?S.snapshots[prevKey]:null;
+  const pcOf=(cur,p)=> (cur!=null&&p!=null&&p!==0)?((cur-p)/p*100):null;
+  const spxPct=prev?pcOf(S.market.spx,prev.spx):null, ndxPct=prev?pcOf(S.market.ndx,prev.ndx):null;
+  const sharpDrop= (spxPct!=null&&spxPct<=-1.5)||(ndxPct!=null&&ndxPct<=-1.5);
+  // -- Contradiction detection (the four engines disagreeing) --
+  const contras=[];
+  if(newsSeverity==='high'&&danger<50) contras.push('News reads high-risk but the danger score reads calm');
+  if(sharpDrop&&danger<50) contras.push('Indexes down sharply today but the danger score reads calm');
+  if(warHeadline&&committeeRun&&geoFailed) contras.push('Geopolitical headlines, but the Geopolitical seat couldn\u2019t run');
+  // -- Event risk --
+  const nx=nextEvent();
+  const eventPending= nx&&nx.days!=null&&nx.days<=2&&(nx.impact==='high'||/CPI|FOMC|Fed|payroll|PPI|jobs/i.test(nx.name));
+  // -- Red-tier reasons --
+  if(committeeRun&&macroFailed) red('Macro seat failed to respond');
+  if(committeeRun&&geoFailed) amber('Geopolitical assessment unavailable (officer didn\u2019t run)');
+  if(committeeRun&&collapsed) red('Committee collapsed onto a single model \u2014 not independent');
+  if(newsSeverity==='high') amber('High-severity news in the feed');
+  contras.forEach(red);
+  if(stale&&live) red('Market data is stale (>4h since refresh)');
+  if(eventPending) red('Major event pending: '+nx.name+' in '+nx.days+'d');
+  // -- Amber-tier reasons --
+  if(!live&&haveMk) amber('Macro entered manually, not live');
+  if(committeeRun&&seatsResp!=null&&seatsConf!=null&&seatsResp<seatsConf&&!macroFailed&&!geoFailed) amber((seatsConf-seatsResp)+' committee seat(s) dropped out');
+  if(committeeRun&&usedFallback&&!collapsed) amber('Some seats answered via fallback model');
+  if(!committeeRun) amber('No committee run yet \u2014 verdict not factored in');
+  // -- Level --
+  const reds=reasons.filter(r=>r.sev==='red').length;
+  let level;
+  if(!haveMk && !live) level='BLACK';                       // genuinely blind \u2014 cannot assess risk
+  else if(reds>=1) level='RED';
+  else if(reasons.length>=1) level='YELLOW';
+  else level='GREEN';
+  const allowed={GREEN:'DEPLOY',YELLOW:'DEPLOY SMALL / WATCH',RED:'WATCH ONLY',BLACK:'WAIT \u2014 NO ALLOCATION'}[level];
+  return {level,allowed,reasons,reds};
+}
+
+function compute(){
+  const t=S.targets,list=syms();
+  let invested=0,cost=0,dayPl=0,haveDp=false,etoroPl=0,haveEtoroPl=false;const rows={};
+  list.forEach(a=>{const h=S.holdings[a];const u=+h.units||0,p=+h.price||0,ac=+h.avgCost||0;const val=u*p;
+    invested+=val; cost+=u*ac;
+    let pl = (h._etoro&&h.plUsd!=null)?+h.plUsd:(val-u*ac);
+    if(h._etoro&&h.plUsd!=null){etoroPl+=+h.plUsd;haveEtoroPl=true;}
+    if(h._dp!=null&&val>0){dayPl+=val*(h._dp/100);haveDp=true;}
+    rows[a]={units:u,price:p,val,cost:u*ac,pl,dp:h._dp,name:h.name||meta(a).name};});
+  const cash=+S.cash||0,reserve=+S.reserve||0,pot=invested+cash;
+  const totPl = haveEtoroPl?etoroPl:(invested-cost);
+  if(S.etoroConnected&&S.etoroDayPl!=null){dayPl=+S.etoroDayPl;haveDp=true;}
+  list.forEach(a=>{rows[a].nowPc=pot>0?rows[a].val/pot*100:0;rows[a].tgtPc=+t[a]||0;rows[a].drift=rows[a].nowPc-rows[a].tgtPc;});
+  let drift=0;list.forEach(a=>drift+=Math.abs(rows[a].drift));
+  const cashPc=pot>0?cash/pot*100:0,cashTgt=+t.CASH||8;drift+=Math.abs(cashPc-cashTgt);
+  const cashDrag=cashPc>30?"Severe":cashPc>20?"High":cashPc>10?"Medium":"Low";
+
+  // concentration: largest single stock
+  let topStock=null;list.forEach(a=>{if(isStock(a)&&(!topStock||rows[a].nowPc>rows[topStock].nowPc))topStock=a;});
+  const concPc=topStock?rows[topStock].nowPc:0;
+
+  const mk=S.market,ma=S.macro,vix=mk.vix,fg=ma.fg;
+
+  // health /10
+  let health=10;health-=({Low:0,Medium:1,High:2.5,Severe:4})[cashDrag];
+  health-=drift<10?0:drift<25?1:drift<45?2:3;
+  if(concPc>10)health-=clamp((concPc-10)*0.25,0,2.5);
+  health=clamp(health,0,10);
+
+  // market danger 0-100 (explainable components, all from real inputs)
+  const dg={};
+  dg.vix= vix==null?14:clamp((vix-12)/23*40,0,40);
+  let yp=0;if(mk.y10!=null)yp+=clamp((mk.y10-3.5)/2*16,0,16);if(mk.y2!=null&&mk.y10!=null&&mk.y2>mk.y10)yp+=6;dg.yields=clamp(yp,0,22);
+  dg.cpi={Low:2,Medium:9,High:16}[ma.cpiRisk]||9;
+  dg.breadth=ma.breadth==null?7:clamp((60-ma.breadth)/60*14,0,14);
+  dg.sentiment=fg==null?4:(fg>75?clamp((fg-75)/25*10,0,10):0);
+  const danger=clamp(Math.round(dg.vix+dg.yields+dg.cpi+dg.breadth+dg.sentiment),0,100);
+  const dangerLabel=danger<25?"Low":danger<50?"Moderate":danger<75?"Elevated":"High";
+
+  // opportunity overall 0-100
+  const excessPc=Math.max(0,cashPc-cashTgt);
+  let opp=35;
+  opp+=clamp(excessPc*1.5,0,28);
+  opp+= fg!=null?clamp((50-fg)/50*30,0,30):(vix!=null&&vix>22?16:vix>18?8:0);
+  let underTot=0;list.forEach(a=>underTot+=Math.max(0,rows[a].tgtPc-rows[a].nowPc));
+  opp+=clamp(underTot*0.5,0,14);
+  opp-= danger>75?8:0;
+  const opportunity=clamp(Math.round(opp),0,100);
+
+  // per-asset opportunity 0-100
+  const oppScores={};
+  list.forEach(a=>{const r=rows[a],mt=meta(a);let s=55+mt.stability;
+    s+=clamp(Math.max(0,r.tgtPc-r.nowPc)*1.2,0,18);
+    s-=clamp(Math.max(0,r.nowPc-r.tgtPc)*1.2,0,18);
+    if(r.dp!=null&&r.dp<0)s+=Math.min(10,-r.dp*1.5);
+    const fear=vix!=null&&vix>22?8:vix!=null&&vix>18?4:0; s+= mt.type==="stockHi"?fear*0.4:fear;
+    if(mt.type==="stockHi"&&danger>70)s-=8;
+    oppScores[a]=clamp(Math.round(s),0,100);});
+
+  // dry powder
+  const cashTgtDollar=pot*cashTgt/100;
+  const excessDollar=Math.max(0,cash-cashTgtDollar);
+  const deployable=Math.max(0,Math.min(excessDollar,cash-reserve));
+  let deployNow=deployable>0?Math.round(deployable*0.6/50)*50:0;if(deployNow<50&&deployable>=50)deployNow=Math.round(deployable/50)*50;
+  let sfTot=0;list.forEach(a=>{const td=pot*(+t[a]||0)/100;rows[a].shortfall=Math.max(0,td-rows[a].val);sfTot+=rows[a].shortfall;});
+  const split=[];
+  if(deployNow>0){list.forEach(a=>{const share=sfTot>0?rows[a].shortfall/sfTot:(+t[a]||0)/100;const amt=Math.round(deployNow*share/50)*50;if(amt>0)split.push({asset:a,amt});});
+    const asg=split.reduce((s,x)=>s+x.amt,0);if(split.length&&asg!==deployNow){split.sort((a,b)=>b.amt-a.amt);split[0].amt+=deployNow-asg;}split.sort((a,b)=>b.amt-a.amt);}
+
+  const ev=nextEvent(),bigSoon=ev&&ev.impact==="high"&&ev.days<=2;
+  const waitForEvent= deployNow>0 && (bigSoon || danger>78);
+
+  let status="HOLD";
+  if(danger>=78||concPc>12)status="REDUCE RISK";
+  else if(cashDrag==="High"||cashDrag==="Severe"||opportunity>=70||drift>25)status="ACT";
+  else if(bigSoon||drift>12||cashDrag==="Medium")status="WATCH";
+  let light= status==="REDUCE RISK"?"red"
+    :(deployNow>0&&!waitForEvent&&opportunity>=65&&danger<55)?"green"
+    :(deployNow>0&&waitForEvent)?"amber"
+    :(deployNow>0)?"amber":"green";
+  let lightAct= light==="red"?"WAIT / TRIM": light==="amber"?"DEPLOY GRADUALLY":"DEPLOY / ON PLAN";
+
+  // Conviction gate — cap the recommendation to what the inputs justify (runs before the verdict is shown).
+  const conviction=convictionGate(danger);
+  let gateBlock=false, gateSmall=false;
+  if(conviction.level==="RED"||conviction.level==="BLACK"){
+    light="red"; gateBlock=true;
+    lightAct= conviction.level==="BLACK"?"WAIT \u2014 NO ALLOCATION":"WATCH ONLY \u00b7 LOW CONVICTION";
+  } else if(conviction.level==="YELLOW"){
+    if(light==="green") light="amber";
+    if(deployNow>0) lightAct="DEPLOY SMALL \u00b7 CAUTION";
+    gateSmall=true;
+  }
+
+  const c={rows,list,invested,cost,cash,reserve,pot,totPl,dayPl,haveDp,haveEtoroPl,cashPc,cashTgt,drift,cashDrag,
+    topStock,concPc,danger,dangerLabel,dg,opportunity,oppScores,excessPc,excessDollar,deployable,deployNow,split,
+    cashTgtDollar,ev,bigSoon,waitForEvent,status,light,lightAct,fg,vix,health:+health.toFixed(1),conviction,gateBlock,gateSmall};
+  c.grand=allocateAmount(1000,c);
+  return c;
+}
+
+function allocateAmount(amount,c){
+  if(c.waitForEvent)return{wait:true,reason:c.ev&&c.ev.impact==="high"&&c.ev.days<=2?("WAIT FOR "+c.ev.name.toUpperCase()):"WAIT — market danger high"};
+  const list=c.list.filter(s=>c.oppScores[s]>0);
+  if(!list.length)return{wait:false,split:[]};
+  let w={},tot=0;list.forEach(s=>{w[s]=Math.max(1,c.oppScores[s]);tot+=w[s];});
+  let alloc={};list.forEach(s=>alloc[s]=amount*w[s]/tot);
+  let overflow=0;list.forEach(s=>{const cap=meta(s).cap*amount;if(alloc[s]>cap){overflow+=alloc[s]-cap;alloc[s]=cap;}});
+  if(overflow>0.01){const room=list.filter(s=>alloc[s]<meta(s).cap*amount).sort((a,b)=>meta(b).stability-meta(a).stability);
+    for(const s of room){const cap=meta(s).cap*amount;const add=Math.min(overflow,cap-alloc[s]);alloc[s]+=add;overflow-=add;if(overflow<=0.01)break;}}
+  let split=list.map(s=>({asset:s,amt:Math.round(alloc[s]/50)*50})).filter(x=>x.amt>0);
+  let sum=split.reduce((a,b)=>a+b.amt,0);
+  if(split.length&&sum!==amount){split.sort((a,b)=>meta(b.asset).stability-meta(a.asset).stability);split[0].amt+=amount-sum;if(split[0].amt<0)split[0].amt=0;}
+  return{wait:false,split:split.filter(x=>x.amt>0).sort((a,b)=>b.amt-a.amt)};
+}
+
+/* ───────── render ───────── */
+let countdownTimer=null;
+function renderConviction(c){
+  const el=$("convictionGate"); if(!el)return; const g=c.conviction; if(!g){el.innerHTML="";return;}
+  const map={GREEN:{col:C.act,tag:"CLEAR"},YELLOW:{col:C.watch,tag:"CAUTION"},RED:{col:C.risk,tag:"LOW"},BLACK:{col:C.risk,tag:"BLOCKED"}};
+  const m=map[g.level]||map.YELLOW;
+  const reds=g.reasons.filter(r=>r.sev==="red"), ambers=g.reasons.filter(r=>r.sev==="amber");
+  const show=(reds.length?reds:ambers).slice(0,5);
+  el.innerHTML=`<div style="border:1.5px solid ${m.col};border-radius:14px;padding:13px 15px;margin-bottom:12px;background:${g.level==="GREEN"?"transparent":"rgba(0,0,0,.22)"}">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+      <div><div style="font-family:var(--mono);font-size:10.5px;color:var(--muted);letter-spacing:.1em">CONVICTION</div>
+      <div style="font-family:var(--disp);font-weight:700;font-size:19px;color:${m.col};text-shadow:0 0 12px ${m.col}55">${g.level} \u00b7 ${esc(g.allowed)}</div></div>
+      <span style="font-family:var(--mono);font-size:10.5px;color:${m.col};border:1px solid ${m.col};border-radius:6px;padding:2px 7px;white-space:nowrap">${m.tag}</span>
+    </div>
+    ${show.length?`<ul style="margin:10px 0 0;padding-left:17px;line-height:1.55">${show.map(r=>`<li style="font-size:12.5px;color:${r.sev==="red"?C.risk:C.watch}">${esc(r.txt)}</li>`).join("")}</ul>`:`<div style="font-size:12.5px;color:var(--muted-2);margin-top:7px">Fresh inputs, committee intact, no contradictions \u2014 full deployment guidance allowed.</div>`}
+    ${g.level!=="GREEN"?`<div style="font-size:11.5px;color:var(--muted-2);margin-top:10px;border-top:1px solid var(--line-soft);padding-top:8px">Deployment guidance below is capped to <b style="color:${m.col}">${esc(g.allowed)}</b> until these clear \u2014 the system won't sound more confident than the data justifies.</div>`:""}
+  </div>`;
+}
+function render(){
+  const c=compute();
+  $("pv").innerHTML=usd(c.pot)+'<span class="bhd">/ '+bhd(c.pot)+'</span>';
+  setPl("dayPl",c.haveDp?c.dayPl:null);
+  if(c.haveDp&&c.dayPl!=null&&S.etoroDayPlEst){
+    const pct=S.etoroDayPlPct!=null?` (${S.etoroDayPlPct>0?'+':''}${S.etoroDayPlPct}%)`:'';
+    $("dayPl").innerHTML+=`<span class="bhd" style="opacity:.7">${pct} est.${S.etoroDayPlPartial?'*':''}</span>`;
+  }
+  setPl("totPl",c.invested>0?c.totPl:null);
+  $("cashV").innerHTML=dual(c.cash);
+  $("cashPc").textContent=c.cashPc.toFixed(1)+"%";
+  $("dryV").innerHTML=c.deployable>0?dual(c.deployable):"—";
+
+  ["R","A","G"].forEach(x=>$("lamp"+x).classList.remove("on"));
+  $({red:"lampR",amber:"lampA",green:"lampG"}[c.light]).classList.add("on");
+  const lcol={red:C.risk,amber:C.watch,green:C.act}[c.light];
+  $("tlAction").textContent=c.lightAct;$("tlAction").style.color=lcol;$("trafficLight").style.borderColor=lcol;
+  const gateReason=c.conviction&&c.conviction.reasons.filter(r=>r.sev==="red")[0];
+  $("tlWhy").textContent=c.pot<=0?"Enter your portfolio to get a decision."
+    : c.gateBlock?("Conviction "+c.conviction.level.toLowerCase()+" \u2014 "+(gateReason?gateReason.txt.toLowerCase():"key inputs incomplete")+". Recommendation held to "+c.conviction.allowed.toLowerCase()+".")
+    : c.light==="red"?(c.status==="REDUCE RISK"?(c.concPc>12?`${c.topStock} is ${c.concPc.toFixed(0)}% of the book — too concentrated. Don't add; consider trimming.`:"Risk is high. Don't add today."):"Hold off today.")
+    : c.light==="amber"?(c.gateSmall?"Some inputs are soft \u2014 deploy a small tranche at most, not the full amount.":(c.waitForEvent&&c.ev?`${c.ev.name} in ${c.ev.days}d — deploy part now, hold the rest until after.`:"Deploy in tranches, not all at once."))
+    : (c.deployNow>0?`Deploy ${usd(c.deployNow)} into what's below target.`:"You're on plan. Nothing to force.");
+  renderConviction(c);
+
+  gauge("gHealth","vHealth",c.health,10,c.health>=7?C.act:c.health>=4?C.watch:C.risk,c.health.toFixed(1));
+  gauge("gDanger","vDanger",c.danger,100,c.danger<25?C.act:c.danger<50?C.watch:C.risk,String(c.danger));
+  gauge("gOpp","vOpp",c.opportunity,100,c.opportunity>=65?C.act:c.opportunity>=40?C.watch:C.hold,String(c.opportunity));
+  chip("chCash",c.cashDrag,{Low:C.act,Medium:C.watch,High:C.risk,Severe:C.risk}[c.cashDrag]);
+  chip("chFg",c.fg==null?"—":c.fg+" "+fgLabel(c.fg),c.fg==null?C.muted:c.fg<25?C.risk:c.fg<45?C.watch:c.fg<=55?C.muted:c.fg<=75?C.act:C.risk);
+  chip("chStatus",c.status,{ACT:C.act,WATCH:C.watch,HOLD:C.hold,"REDUCE RISK":C.risk}[c.status]);
+
+  renderBehaviour(c); renderAlerts(c); renderMarket(c); renderMacro(c); renderNews();
+  renderChanged(c); renderDanger(c); renderOpp(c); renderPortfolio(c);
+  renderDryPowder(c); renderRadar(c); startCountdown(); renderCommittee(); renderGuide(c); renderJournal();
+  renderConfidence(); renderSourcePanel(); writeSnapshot(c);
+  return c;
+}
+function fgLabel(v){return v<25?"Ext Fear":v<45?"Fear":v<=55?"Neutral":v<=75?"Greed":"Ext Greed";}
+function setPl(id,n){const el=$(id);if(n==null){el.textContent="—";el.className="v flat";return;}el.innerHTML=(n>0?'+':'')+dual(n);el.className="v "+plClass(n);}
+function gauge(gid,vid,val,max,col,disp){$(gid).innerHTML=gaugeSemi(val,max,col);$(vid).textContent=disp;$(vid).style.color=col;}
+function chip(id,txt,col){const e=$(id);e.textContent=txt;e.style.color=col;}
+
+function renderBehaviour(c){
+  const now=Date.now();S.behaviour=S.behaviour||{refreshLog:[],deepLog:[]};
+  S.behaviour.refreshLog=(S.behaviour.refreshLog||[]).filter(t=>t>now-86400000);
+  S.behaviour.deepLog=(S.behaviour.deepLog||[]).filter(t=>t>now-86400000);
+  const checks=S.behaviour.refreshLog.length,deeps=S.behaviour.deepLog.length,f=[];
+  if(checks>12)f.push("You've refreshed "+checks+" times in 24h. No material info has changed since this morning.");
+  if(deeps>3)f.push("You've run Deep Triggers "+deeps+" times today. The AIs won't change their mind every hour.");
+  if(c.cashDrag==="High"||c.cashDrag==="Severe")f.push("Holding "+c.cashPc.toFixed(0)+"% cash — money sitting out of the market.");
+  if(c.concPc>10)f.push(c.topStock+" is "+c.concPc.toFixed(1)+"% of the book. One stock steering the ship.");
+  if(c.excessPc>5&&checks>4)f.push("Lots of checking while sitting on dry powder — that's waiting for a perfect entry that won't come.");
+  const lvl=f.length>=3?"high":f.length>=1?"med":"low";
+  const bc=$("bhvCard");
+  if(f.length){bc.style.display="block";bc.classList.toggle("high",lvl==="high");$("bhvList").innerHTML=f.map(x=>"<li>"+esc(x)+"</li>").join("");
+    $("bhvBlunt").textContent=lvl==="high"?"Close the app and step away. Nothing here needs a decision every hour. Your edge is patience and consistency, not reacting to noise.":"Mostly fine — tidy the flag(s) above and stop staring at the screen.";
+  } else bc.style.display="none";
+}
+
+function renderMarket(c){
+  const mk=S.market,keys=Object.keys(S.snapshots).sort(),prevKey=keys.filter(k=>k<todayKey()).pop(),prev=prevKey?S.snapshots[prevKey]:null;
+  function d1(now,was,dec,inv){if(now==null||was==null)return'<div class="c" style="color:var(--muted-2)">—</div>';const d=now-was;const up=inv?d<0:d>0;const col=d===0?C.muted:up?C.act:C.risk;return `<div class="c" style="color:${col}">${d>0?"▲":d<0?"▼":"="} ${Math.abs(d).toFixed(dec)}</div>`;}
+  const items=[
+    ["S&P 500",mk.spx,0,d1(mk.spx,prev&&prev.spx,0,false),"Broad US market."],
+    ["Nasdaq 100",mk.ndx,0,d1(mk.ndx,prev&&prev.ndx,0,false),"Tech — tracks your QQQ tilt."],
+    ["VIX",mk.vix,1,d1(mk.vix,prev&&prev.vix,1,true),mk.vix==null?"Set this — drives danger & opp.":mk.vix>22?"Fear elevated — good for buyers.":mk.vix<15?"Calm.":"Normal."],
+    ["2Y Yield",mk.y2,2,d1(mk.y2,prev&&prev.y2,2,true),"Short rates — the Fed's lever.","%"],
+    ["10Y Yield",mk.y10,2,d1(mk.y10,prev&&prev.y10,2,true),"Higher = pressure on growth.","%"],
+    ["Dollar Index",mk.dxy,1,d1(mk.dxy,prev&&prev.dxy,1,false),"Dollar strength."]
+  ];
+  $("mktBig").innerHTML=items.map(([t,v,dec,d,mean,suf])=>`<div class="mb"><div class="t">${t}</div><div class="p">${v!=null?(+v).toLocaleString(undefined,{maximumFractionDigits:dec})+(suf||""):"—"}</div>${d}<div class="mean">${mean}</div></div>`).join("");
+  $("mktNote").textContent=S.market.live?"Live data via backend. FRED levels are daily close.":S.backendUrl?"Backend set — press Refresh.":"Manual / not connected. Enter levels in Settings.";
+}
+
+function renderMacro(c){
+  const ma=S.macro;
+  const cpiArrow=ma.cpi!=null&&ma.cpiPrev!=null?(ma.cpi>ma.cpiPrev?'<span style="color:var(--risk)">▲ hotter</span>':ma.cpi<ma.cpiPrev?'<span style="color:var(--act)">▼ cooler</span>':'flat'):"";
+  const cpiEv=S.events.find(e=>/CPI/i.test(e.name)),cpiTs=cpiEv?eventTs(cpiEv):null;
+  const fedEv=S.events.find(e=>/FOMC|Fed/i.test(e.name)),fedTs=fedEv?eventTs(fedEv):null;
+  $("macroGrid").innerHTML=`
+    <div class="mc-card"><div class="t">CPI (YoY)</div><div class="big">${ma.cpi!=null?ma.cpi.toFixed(1)+"%":"—"}</div><div class="sub">${cpiArrow||"prior "+(ma.cpiPrev!=null?ma.cpiPrev+"%":"—")} · risk ${ma.cpiRisk}${cpiTs?" · next "+countdownStr(cpiTs):""}</div></div>
+    <div class="mc-card"><div class="t">Fed funds</div><div class="big">${ma.fedRate!=null?ma.fedRate.toFixed(2)+"%":"—"}</div><div class="sub">Cut prob ${ma.cutProb!=null?ma.cutProb+"%":"—"}${fedTs?" · meeting "+countdownStr(fedTs):""}</div></div>
+    <div class="mc-card"><div class="t">Fear &amp; Greed</div><div class="big">${ma.fg!=null?ma.fg:"—"}</div><div class="sub">${ma.fg!=null?fgLabel(ma.fg):"set in settings"} · breadth ${ma.breadth!=null?ma.breadth+"% >200d":"—"}</div></div>`;
+  let mean="";
+  if(ma.fg!=null&&ma.fg<35)mean="Fear is elevated. For a long-term buyer that historically improves forward returns — keep deploying on plan.";
+  else if(ma.fg!=null&&ma.fg>75)mean="Greed is high. Don't chase — deploy gradually, don't pile in at the top.";
+  else if(ma.cpi!=null&&ma.cpiPrev!=null&&ma.cpi>ma.cpiPrev)mean="Inflation ticked up — rate-cut hopes cool, growth/tech can wobble. Useful for buyers, not a reason to sell.";
+  else mean="Macro is roughly neutral. Stick to your deployment plan.";
+  if(S.macro.news)mean+=` Watching: ${esc(S.macro.news)}.`;
+  $("macroMeans").innerHTML=mean;
+}
+
+function renderNews(){
+  const n=S.newsList||[],card=$("newsCard");
+  if(!n.length){card.style.display="none";return;}
+  card.style.display="block";
+  $("newsList").innerHTML=n.slice(0,6).map((h,i)=>`<a href="${esc(h.url||'#')}" target="_blank" rel="noopener" style="display:block;text-decoration:none;color:inherit;padding:9px 0;${i?'border-top:1px solid var(--line-soft)':''}"><div style="font-weight:500;font-size:13px;line-height:1.35">${esc(h.headline||'')}</div><div style="font-size:11px;color:var(--muted-2);font-family:var(--mono);margin-top:3px">${esc(h.source||'')}${h.datetime?" · "+timeAgo(h.datetime):""}</div></a>`).join("");
+}
+
+function renderChanged(c){
+  const keys=Object.keys(S.snapshots).sort(),prevKey=keys.filter(k=>k<todayKey()).pop(),prev=prevKey?S.snapshots[prevKey]:null,grid=$("deltaGrid");
+  if(!prev){grid.innerHTML='';$("changedNote").textContent="No prior day stored yet. Refresh again tomorrow.";$("changedMeans").textContent="—";return;}
+  $("changedNote").textContent="vs "+prevKey;
+  const it=[];const push=(k,now,was,fmt,col)=>{if(now==null||was==null)return;const d=now-was;it.push({k,disp:(d>0?"+":"")+fmt(d),col:d===0?C.muted:col(d)});};
+  push("VIX",S.market.vix,prev.vix,x=>x.toFixed(1),d=>d>0?C.risk:C.act);
+  push("10Y yield",S.market.y10,prev.y10,x=>x.toFixed(2)+"%",d=>d>0?C.risk:C.act);
+  push("2Y yield",S.market.y2,prev.y2,x=>x.toFixed(2)+"%",d=>d>0?C.risk:C.act);
+  if(c.rows.QQQ&&c.rows.QQQ.dp!=null)it.push({k:"QQQ today",disp:(c.rows.QQQ.dp>0?"+":"")+c.rows.QQQ.dp.toFixed(2)+"%",col:c.rows.QQQ.dp>0?C.act:C.risk});
+  push("Cut prob",S.macro.cutProb,prev.cutProb,x=>x.toFixed(0)+"%",d=>d>0?C.act:C.risk);
+  if(prev.news!=null&&S.macro.news&&S.macro.news!==prev.news)it.push({k:"Major news",disp:"updated",col:C.data});
+  grid.innerHTML=it.length?it.map(x=>`<div class="delta"><span class="k">${esc(x.k)}</span><span class="v" style="color:${x.col}">${esc(x.disp)}</span></div>`).join(""):'<div style="font-size:12px;color:var(--muted)">No tracked values changed.</div>';
+  const vixUp=S.market.vix!=null&&prev.vix!=null&&S.market.vix>prev.vix,yUp=S.market.y10!=null&&prev.y10!=null&&S.market.y10>prev.y10;
+  $("changedMeans").textContent=(vixUp||yUp)?"Market slightly more cautious than yesterday — cheaper entry, same plan. Neutral-to-good if you're deploying.":"Calm to slightly improved vs yesterday. Nothing that changes today's decision.";
+}
+
+function renderDanger(c){
+  const rows=[["VIX / volatility",c.dg.vix,40],["Treasury yields",c.dg.yields,22],["CPI / inflation risk",c.dg.cpi,16],["Market breadth",c.dg.breadth,14],["Sentiment (greed)",c.dg.sentiment,10]];
+  $("dangerBreakdown").innerHTML=`<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><span class="num" style="font-size:26px;font-weight:700;color:${c.danger<25?C.act:c.danger<50?C.watch:C.risk}">${c.danger}<span style="font-size:13px;color:var(--muted)">/100</span></span><span class="num" style="font-size:14px;color:${c.danger<25?C.act:c.danger<50?C.watch:C.risk}">${c.dangerLabel}</span></div>`+
+    rows.map(([l,v,m])=>{const col=v/m>0.66?C.risk:v/m>0.33?C.watch:C.act;return `<div class="bd-row"><div class="lab"><span>${l}</span><span class="pc">${Math.round(v)}/${m}</span></div><div class="track"><i style="width:${v/m*100}%;background:${col}"></i></div></div>`;}).join("");
+  $("dangerMeans").textContent=c.danger>=75?"High danger. Don't deploy aggressively today — keep tranches small or wait for the next data point.":c.danger>=50?"Elevated. Deploy gradually and avoid adding to your most volatile position.":"Low-to-moderate danger. Conditions are fine for steady deployment on plan.";
+}
+
+function renderOpp(c){
+  $("oppGrid").innerHTML=c.list.map(a=>{const s=c.oppScores[a],col=s>=70?C.act:s>=50?C.watch:C.risk;const tag=s>=75?"Strong add":s>=60?"Decent add":s>=45?"Neutral":"Low priority";
+    return `<div class="opp"><div class="top"><span class="nm">${a}</span><span class="sc" style="color:${col}">${s}</span></div><div class="track"><i style="width:${s}%;background:${col}"></i></div><div class="tag">${esc(meta(a).name)} · ${tag}</div></div>`;}).join("")||'<div style="font-size:12px;color:var(--muted)">No holdings yet.</div>';
+  if(!c.list.length){$("oppMeans").textContent="Add holdings to score them.";return;}
+  const best=c.list.slice().sort((a,b)=>c.oppScores[b]-c.oppScores[a])[0],worst=c.list.slice().sort((a,b)=>c.oppScores[a]-c.oppScores[b])[0];
+  $("oppMeans").textContent=`Most attractive to add today: ${best} (${c.oppScores[best]}). Least: ${worst} (${c.oppScores[worst]}). Scores reward being below target and buying into fear, and penalise concentration — especially single stocks.`;
+}
+
+function renderPortfolio(c){
+  const src=S.source==="etoro"?"Synced from eToro (read-only)":S.source==="etoro-fail"?"eToro sync unavailable — using manual/last known data.":(S.market.live?"Live prices via backend/Finnhub.":"Manual entry.");
+  $("pfNote").textContent=c.invested>0?src:"No holdings yet — tap Edit portfolio.";
+  let held=c.list.filter(a=>c.rows[a].val>0);if(!held.length)held=c.list;
+  $("pfBody").innerHTML=held.map(a=>{const r=c.rows[a];return `<tr><td><div class="tkr"><span class="badge" style="background:${colorFor(a)}">${a}</span>${esc(r.name)}</div></td><td>${r.val?dual(r.val):'—'}</td><td class="${plClass(r.pl)}">${(r.cost||r.pl)?(r.pl>=0?'+':'')+usd(r.pl):'—'}</td><td>${r.nowPc.toFixed(1)}%</td><td style="color:var(--muted)">${r.tgtPc}%</td></tr>`;}).join("")||'<tr><td colspan="5" style="color:var(--muted)">No holdings</td></tr>';
+  const segs=c.list.map(a=>({label:a,value:c.rows[a].val,color:colorFor(a)})).concat([{label:"Cash",value:c.cash,color:CASH_COLOR}]);
+  $("portfolioPie").innerHTML=donut(segs,{c1:c.invested>0?usd(c.pot):"",c2:c.invested>0?"value":""});
+  $("pieLegend").innerHTML=segs.filter(s=>s.value>0).map(s=>`<div class="lg"><span class="sw" style="background:${s.color}"></span><span class="nm">${s.label}</span><span class="pc">${c.pot>0?(s.value/c.pot*100).toFixed(1):0}%</span></div>`).join("")||'<span style="font-size:12px;color:var(--muted)">No holdings yet.</span>';
+  $("allocWrap").innerHTML=[...c.list,"CASH"].map(a=>{const now=a==="CASH"?c.cashPc:c.rows[a].nowPc,tgt=a==="CASH"?c.cashTgt:c.rows[a].tgtPc,max=Math.max(50,now+8,tgt+8),col=a==="CASH"?CASH_COLOR:colorFor(a);
+    return `<div class="row"><div class="lab"><span>${a==="CASH"?"Cash":a}</span><span class="pc">${now.toFixed(1)}% / ${tgt}% target</span></div><div class="track"><div class="fill" style="width:${clamp(now/max*100,0,100)}%;background:${col}"></div><div class="tgt" style="left:${clamp(tgt/max*100,0,100)}%"></div></div></div>`;}).join("");
+  let worst=null;c.list.forEach(a=>{if(!worst||Math.abs(c.rows[a].drift)>Math.abs(c.rows[worst].drift))worst=a;});
+  $("pfMeans").innerHTML=c.invested>0?`Total P/L ${dual(c.totPl)}. Biggest gap from plan: ${worst} (${c.rows[worst].drift>0?"over":"under"} by ${Math.abs(c.rows[worst].drift).toFixed(1)}%). Fix with new cash, not by selling.${c.concPc>10?` Concentration watch: ${c.topStock} at ${c.concPc.toFixed(0)}%.`:""}`:"Enter holdings to get a real read.";
+}
+
+function renderDryPowder(c){
+  const col={Low:C.act,Medium:C.watch,High:C.risk,Severe:C.risk}[c.cashDrag];
+  $("cashMeter").innerHTML=gaugeSemi(c.cashPc,40,col);
+  $("cashMeterLabel").innerHTML=`${c.cashPc.toFixed(0)}% · <span style="color:${col}">${c.cashDrag}</span>`;
+  $("dpCash").innerHTML=dual(c.cash);$("dpTarget").innerHTML=dual(c.cashTgtDollar);
+  $("dpDeployable").innerHTML=dual(c.deployable);$("dpDrag").textContent=c.cashDrag;
+  $("dpDot").style.background=c.deployNow>0?C.act:C.hold;
+  const rec=$("dpRec");
+  if(c.deployable<=0){rec.className="dp-rec wait";$("dpRecB").textContent="Nothing to deploy — keep cash steady";$("deploySplit").innerHTML="";$("dpMeans").textContent="Cash is at/below target. Don't raise extra cash hoping to time a dip.";return;}
+  if(c.gateBlock){
+    rec.className="dp-rec wait";
+    $("dpRecB").textContent=c.conviction.level==="BLACK"?"Hold — inputs unreliable, no allocation":"Hold — conviction too low to deploy";
+    $("deploySplit").innerHTML="";
+    $("dpMeans").innerHTML=`You have ${dual(c.excessDollar)} above target, but the <b style="color:var(--risk)">conviction gate is ${c.conviction.level}</b> — the suggested split is held back until the flagged inputs clear. This isn't "don't ever deploy"; it's "don't deploy <i>blind</i> right now."`;
+    return;
+  }
+  if(c.waitForEvent){rec.className="dp-rec wait";$("dpRecB").textContent=`Deploy ${usd(c.deployNow)} AFTER ${c.ev&&c.ev.impact==="high"&&c.ev.days<=2?c.ev.name:"the data"}`;}
+  else if(c.gateSmall){rec.className="dp-rec";$("dpRecB").textContent=`Deploy a small tranche only (~${usd(Math.min(c.deployNow,250))})`;}
+  else{rec.className="dp-rec";$("dpRecB").textContent=`Deploy ${usd(c.deployNow)} now`;}
+  $("deploySplit").innerHTML=c.split.map(s=>{const w=s.amt/c.deployNow*100;return `<div class="ds"><span class="badge" style="background:${colorFor(s.asset)}">${s.asset}</span><div class="bar"><i style="width:${w}%"></i></div><span class="amt">${dual(s.amt)}</span></div>`;}).join("");
+  $("dpMeans").innerHTML=`${dual(c.excessDollar)} above your ${c.cashTgt}% cash target. ${c.gateSmall?`Some inputs are soft (conviction ${c.conviction.level}) — keep it to a small tranche today, not the full ${usd(c.deployNow)}.`:c.waitForEvent?`A high-impact event is close — deploy ${usd(c.deployNow)} <b>after</b> it lands, keep the rest as a second tranche.`:`Put ${usd(c.deployNow)} to work now, hold the rest for a second tranche. Buy what's furthest below target.`}`;
+}
+
+function renderRadar(){
+  const evs=S.events.map(e=>({...e,ts:eventTs(e)})).filter(e=>e.ts!=null&&e.ts>=Date.now()-3600000).sort((a,b)=>a.ts-b.ts);
+  if(!evs.length){$("radar").innerHTML='<div style="font-size:13px;color:var(--muted)">No dates set. Add CPI / Fed / earnings in Settings.</div>';$("radarMeans").textContent="Add real dates so countdowns work.";return;}
+  $("radar").innerHTML=evs.slice(0,6).map(e=>{const ic={high:C.risk,med:C.watch,low:C.hold}[e.impact]||C.hold;
+    return `<div class="ev"><div class="cd"><div class="big" data-ts="${e.ts}">—</div><div class="lab">to go</div></div><div class="body"><div class="nm">${esc(e.name)}</div><div class="desc">${esc(e.watch)}</div></div><span class="imp" style="color:${ic};background:${hex2rgba(ic,.14)}">${e.impact}</span></div>`;}).join("");
+  const ne=nextEvent();$("radarMeans").textContent=ne?`Next: ${ne.name} in ${ne.days} day(s)${ne.impact==="high"?" — high impact. Don't deploy your full tranche right before it.":"."}`:"—";
+}
+function countdownStr(ts){const ms=ts-Date.now();if(ms<=0)return"now";const d=Math.floor(ms/86400000),h=Math.floor(ms%86400000/3600000),m=Math.floor(ms%3600000/60000);if(d>0)return d+"d "+h+"h";if(h>0)return h+"h "+m+"m";return m+"m";}
+function startCountdown(){if(countdownTimer)clearInterval(countdownTimer);const tick=()=>{document.querySelectorAll("[data-ts]").forEach(el=>{const ts=+el.dataset.ts,ms=ts-Date.now();if(ms<=0){el.textContent="LIVE";return;}const d=Math.floor(ms/86400000),h=Math.floor(ms%86400000/3600000),m=Math.floor(ms%3600000/60000),s=Math.floor(ms%60000/1000);el.textContent=d>0?d+"d "+h+"h":h>0?h+":"+String(m).padStart(2,"0")+":"+String(s).padStart(2,"0"):m+":"+String(s).padStart(2,"0");});};tick();countdownTimer=setInterval(tick,1000);}
+
+/* ───────── alerts engine (controlled, in-app only) ───────── */
+function nextMidnight(){const d=new Date();d.setHours(24,0,0,0);return d.getTime();}
+function prevDaySnap(){const keys=Object.keys(S.snapshots).sort();const pk=keys.filter(k=>k<todayKey()).pop();return pk?S.snapshots[pk]:null;}
+function evaluateAlerts(c){
+  const A=[],set=S.alertSettings,now=Date.now(),prev=prevDaySnap();
+  const add=(key,sev,title,why,action)=>A.push({key,sev,title,why,action});
+  if(set.cashDrag){
+    if(c.cashPc>c.cashTgt+1){const over=c.cashPc-c.cashTgt;add("cash_above_target",over>8?"medium":"low",`Cash above target (${c.cashPc.toFixed(0)}% vs ${c.cashTgt}%)`,"Idle cash is a quiet drag on long-term returns.",`Deploy ${usd(c.deployNow||0)} into what's below target, in tranches.`);}
+    if(c.cashPc>20){ if(!S.alertState.cashHighSince)S.alertState.cashHighSince=now; const days=(now-S.alertState.cashHighSince)/86400000; if(days>=7)add("cash_high_7d","high",`Cash above 20% for ${Math.floor(days)} days`,"You've been sitting out of the market for over a week.","Commit to a deployment schedule — a fixed weekly tranche beats waiting for a perfect day.");}
+    else S.alertState.cashHighSince=null;
+  }
+  if(set.deploy){
+    const ready=c.deployNow>0&&!c.waitForEvent&&c.light==="green";
+    if(S.alertState.prevDeployReady!==undefined&&!S.alertState.prevDeployReady&&ready)add("wait_to_deploy","medium","Signal changed: WAIT → DEPLOY","Conditions cleared — the system now favours putting cash to work.",`Deploy ${usd(c.deployNow)} per the suggested split. Don't hold out for a perfect entry.`);
+    S.alertState.prevDeployReady=ready;
+    if(c.opportunity>75)add("opp_above_75","low",`Opportunity score high (${c.opportunity}/100)`,"Setup favours buyers — fear elevated and/or you're underdeployed.","A good window to deploy a tranche on plan.");
+  }
+  if(set.risk){
+    if(c.danger>65)add("danger_65",c.danger>75?"high":"medium",`Market danger elevated (${c.danger}/100)`,"Volatility, yields or inflation risk are stacking up.","Deploy smaller tranches or wait for the next data point. Don't add to your most volatile name.");
+    if(c.vix!=null&&prev&&prev.vix!=null){const d=c.vix-prev.vix;if(d>=3||(prev.vix>0&&d/prev.vix>=0.15))add("vix_spike","high",`VIX spiked (+${d.toFixed(1)} to ${c.vix.toFixed(1)})`,"A sharp fear spike — usually a better entry, but expect chop.","Stay calm. This favours buyers more than sellers — don't panic sell.");}
+    if(S.market.y10!=null&&prev&&prev.y10!=null){const d=S.market.y10-prev.y10;if(d>=0.15)add("y10_jump","medium",`10Y yield jumped (+${d.toFixed(2)} to ${S.market.y10.toFixed(2)}%)`,"Rising long rates pressure growth/tech valuations.","No long-term action needed; just don't impulsively overweight tech on the wobble.");}
+  }
+  if(set.events){
+    S.events.forEach(e=>{const ts=eventTs(e);if(ts==null)return;const h=(ts-now)/3600000;if(h<0)return;
+      const isCPI=/CPI/i.test(e.name),isFed=/FOMC|Fed/i.test(e.name),isErn=/earnings/i.test(e.name);
+      if((isCPI||isFed)&&h<=24)add("event_"+e.name,"high",`${e.name} within 24h`,"A high-impact event can move the whole market.","Hold your next tranche until after it lands — it removes a coin-flip from the entry.");
+      else if(isErn&&h<=48)add("event_"+e.name,"medium",`${e.name} within 48h`,"Earnings can swing a single-stock position sharply.","Don't add to that name right before the print.");});
+  }
+  if(set.drift){
+    c.list.forEach(a=>{const dr=c.rows[a].drift;if(Math.abs(dr)>5){const under=dr<0,voo=a==="VOO"&&under;
+      add("drift_"+a,voo?"medium":"low",`${a} ${under?"underweight":"overweight"} by ${Math.abs(dr).toFixed(1)}%`,voo?"Your core holding is below target — the base of the portfolio is light.":"Allocation has drifted from your plan.",under?`Top up ${a} with new cash toward its ${c.rows[a].tgtPc}% target.`:"Let it ride or steer new cash elsewhere; don't sell just to rebalance.");}});
+  }
+  if(set.behaviour){
+    const checks=((S.behaviour&&S.behaviour.refreshLog)||[]).filter(t=>t>now-86400000).length;
+    if(checks>12)add("over_refresh","low",`You've refreshed ${checks}× in 24h`,"Frequent checking rarely changes a long-term call and adds stress.","Close the app. Nothing here needs action every hour.");
+    const recent=(S.history||[]).slice(-6),told=recent.filter(s=>s.suggestedDeploy>0&&s.cashPc>c.cashTgt+3);
+    if(recent.length>=4&&told.length>=3)add("cash_while_deploy","medium","Repeatedly told to deploy, cash still high","Across recent checks the system favoured deploying, but cash hasn't moved.","Deploy a tranche now or schedule one. Waiting for the perfect day is costing you.");
+  }
+  return A;
+}
+function activeAlerts(c){
+  const cand=evaluateAlerts(c),now=Date.now(),live={};cand.forEach(a=>live[a.key]=true);
+  Object.keys(S.alerts).forEach(k=>{if(!live[k])delete S.alerts[k];}); // re-arm once condition clears
+  const out=[];
+  cand.forEach(a=>{const st=S.alerts[a.key]||(S.alerts[a.key]={});
+    if(st.snoozeUntil){if(st.snoozeUntil>now)return;st.snoozeUntil=null;}
+    if(st.dismissed)return;
+    out.push(a);});
+  const ord={high:0,medium:1,low:2};out.sort((a,b)=>ord[a.sev]-ord[b.sev]);
+  return out;
+}
+function renderAlerts(c){
+  const list=activeAlerts(c),wrap=$("alertsList");
+  const hi=list.filter(a=>a.sev==="high").length,md=list.filter(a=>a.sev==="medium").length;
+  const pill=$("alertCount");
+  pill.textContent=list.length?(hi?hi+" high":md?md+" medium":list.length+" low"):"clear";
+  pill.style.color=list.length?(hi?C.risk:md?C.watch:C.hold):C.act;
+  pill.style.borderColor=list.length?(hi?C.risk:md?C.watch:C.hold):C.act;
+  if(!list.length){wrap.innerHTML='<div style="font-size:12.5px;color:var(--muted)">No active alerts. The system only flags things that need a decision — quiet is good.</div>';return;}
+  wrap.innerHTML=list.map(a=>{const col={low:C.hold,medium:C.watch,high:C.risk}[a.sev];
+    return `<div class="alert" style="border-left:3px solid ${col}"><div class="ah"><span class="atitle">${esc(a.title)}</span><span class="asev" style="color:${col}">${a.sev.toUpperCase()}</span></div><div class="awhy">${esc(a.why)}</div><div class="aact"><b>Do:</b> ${esc(a.action)}</div><div class="abtns"><button class="al-dismiss" data-key="${esc(a.key)}">Dismiss</button><button class="al-snooze" data-key="${esc(a.key)}">Snooze till tomorrow</button></div></div>`;}).join("");
+}
+
+/* ───────── portfolio memory + decision journal (local-first) ───────── */
+function committeeResult(){const v=Object.values(S.committee.models).filter(Boolean);if(!v.length)return null;const t={};v.forEach(x=>t[x]=(t[x]||0)+1);let top=null,tn=0;Object.entries(t).forEach(([k,n])=>{if(n>tn||(n===tn&&top&&VERDICT_STANCE[k]<VERDICT_STANCE[top])){top=k;tn=n;}});return{verdict:top,consensus:Math.round(tn/v.length*100),count:v.length};}
+function localVerdict(){const r=committeeResult();return (S.committee.synth&&S.committee.synth.verdict)||(r&&r.verdict)||null;}
+function recordSnapshot(c,trigger){
+  if(!c||c.pot<=0)return;
+  const snap={ts:Date.now(),trigger:trigger||"refresh",
+    value:r0(c.pot),cash:r0(c.cash),dryPowder:r0(c.deployable),cashPc:+c.cashPc.toFixed(1),
+    holdings:c.list.map(a=>({sym:a,units:c.rows[a].units,price:c.rows[a].price,val:r0(c.rows[a].val),pc:+c.rows[a].nowPc.toFixed(1)})),
+    alloc:Object.fromEntries(c.list.map(a=>[a,+c.rows[a].nowPc.toFixed(1)]).concat([["CASH",+c.cashPc.toFixed(1)]])),
+    totPl:r0(c.totPl),dayPl:c.haveDp?r0(c.dayPl):null,
+    danger:c.danger,opportunity:c.opportunity,status:c.status,light:c.light,
+    aiVerdict:localVerdict(),suggestedDeploy:c.deployNow,source:S.source};
+  // de-dupe: skip if an identical-value snapshot was stored < 2 min ago by the same trigger
+  const last=S.history[S.history.length-1];
+  if(last&&last.trigger===snap.trigger&&Math.abs(last.value-snap.value)<1&&(snap.ts-last.ts)<120000){S.history[S.history.length-1]=snap;}
+  else S.history.push(snap);
+  while(S.history.length>180)S.history.shift();
+  persist(); syncHistory("snapshots",snap);
+}
+function recommendedActionText(c){
+  if(c.deployable<=0)return "Hold — cash at/below target, nothing to deploy.";
+  if(c.waitForEvent)return `Wait, then deploy ${usd(c.deployNow)}${c.ev?" after "+c.ev.name:""}.`;
+  if(c.deployNow>0)return `Deploy ${usd(c.deployNow)}: `+c.split.map(s=>usd(s.amt)+" "+s.asset).join(", ")+".";
+  return "Stay on plan.";
+}
+function addJournalEntry(c){
+  const entry={id:"j"+Date.now()+Math.random().toString(36).slice(2,6),ts:Date.now(),
+    conditions:{danger:c.danger,opportunity:c.opportunity,vix:S.market.vix,fg:S.macro.fg,cashPc:+c.cashPc.toFixed(1),status:c.status,value:r0(c.pot)},
+    aiVerdict:localVerdict(),recommendedAction:recommendedActionText(c),
+    actualAction:"",notes:"",outcome:"",outcomeTs:null};
+  S.journal.push(entry); while(S.journal.length>200)S.journal.shift();
+  persist(); syncHistory("journal",entry); return entry;
+}
+function updateJournalVerdict(id){const e=S.journal.find(x=>x.id===id);if(e){e.aiVerdict=localVerdict();persist();syncHistory("journal",e);renderJournal();}}
+function syncHistory(type,entry){ if(!S.backendUrl)return; try{fetch(S.backendUrl.replace(/\/+$/,"")+"/api/history",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type,entry})}).catch(()=>{}); }catch(_){}}
+
+function renderJournal(){
+  const j=(S.journal||[]).slice().reverse();
+  const wrap=$("journalList");
+  if(!j.length){wrap.innerHTML='<div style="font-size:12.5px;color:var(--muted)">No decisions logged yet. Run Deep Triggers and an entry is saved here automatically.</div>';$("journalPattern").textContent="";return;}
+  wrap.innerHTML=j.slice(0,8).map(e=>{const d=new Date(e.ts),col=VERDICT_COLOR[e.aiVerdict]||C.muted;
+    return `<div class="jrow"><div class="jhead"><span class="jdate">${d.toLocaleDateString()} ${d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</span><span class="jverdict" style="color:${col}">${esc(e.aiVerdict||'—')}</span></div>
+      <div class="jcond">danger ${e.conditions.danger} · opp ${e.conditions.opportunity} · cash ${e.conditions.cashPc}%${e.conditions.vix!=null?" · VIX "+e.conditions.vix:""}</div>
+      <div class="jline"><span class="jlab">Recommended</span> ${esc(e.recommendedAction)}</div>
+      <div class="jline"><span class="jlab">You did</span> ${e.actualAction?esc(e.actualAction):'<span style="color:var(--muted-2)">not logged</span>'}</div>
+      ${e.outcome?`<div class="jline"><span class="jlab">Outcome</span> ${esc(e.outcome)}</div>`:""}
+      ${e.notes?`<div class="jline"><span class="jlab">Notes</span> ${esc(e.notes)}</div>`:""}
+      <button class="btn sm jedit" data-id="${e.id}" style="border:1px solid var(--line);margin-top:7px">Log action / outcome</button></div>`;}).join("");
+  // simple behavioural pattern read
+  const logged=j.filter(e=>e.actualAction);
+  let pat="";
+  if(logged.length>=3){
+    const waited=logged.filter(e=>/wait|hold|nothing|skip/i.test(e.actualAction)).length;
+    const recDeploy=logged.filter(e=>/deploy/i.test(e.recommendedAction)).length;
+    const ignored=logged.filter(e=>/deploy/i.test(e.recommendedAction)&&/wait|hold|nothing|skip/i.test(e.actualAction)).length;
+    const avgCash=Math.round(j.reduce((s,e)=>s+(e.conditions.cashPc||0),0)/j.length);
+    if(recDeploy&&ignored/recDeploy>0.5)pat=`Pattern: you've skipped deployment on ${ignored} of ${recDeploy} occasions it was recommended — you may be waiting too long.`;
+    else if(avgCash>20)pat=`Pattern: your cash has averaged ${avgCash}% across logged decisions — you tend to hold a lot of dry powder.`;
+    else pat=`Pattern: ${logged.length} decisions logged, mostly acted on. Discipline looks steady.`;
+  } else pat="Log what you actually did after a few runs and patterns (waiting too long, hoarding cash, chasing red days) will surface here.";
+  $("journalPattern").textContent=pat;
+}
+let journalEditId=null;
+function openJournalEdit(id){const e=S.journal.find(x=>x.id===id);if(!e)return;journalEditId=id;$("j_action").value=e.actualAction||'';$("j_notes").value=e.notes||'';$("j_outcome").value=e.outcome||'';$("journalEditMeta").textContent=`${new Date(e.ts).toLocaleString()} · AI said ${e.aiVerdict||'—'} · recommended: ${e.recommendedAction}`;openModal("journalModal");}
+
+
+function renderCommittee(){
+  const synth=S.committee.synth, local=committeeResult();
+  if(synth&&synth.failed){
+    $("committeeVerdict").textContent="UNAVAILABLE";$("committeeVerdict").style.color=C.risk;
+    $("committeeMeta").textContent=`${synth.seatsResponded||0}/${synth.seatsConfigured||4} seats responded — no verdict`;
+    $("consensusBar").style.width="0%";$("consensusBar").style.background=C.risk;
+    $("lowConfWrap").innerHTML='<div class="lowconf"><b>Committee unavailable.</b> '+esc(synth.note||"No models responded.")+' Usually the free-tier daily limit — it resets overnight. No verdict is shown rather than a stale one.</div>';
+    $("modelLog").innerHTML='';return;
+  }
+  const verdict= synth?synth.verdict:(local&&local.verdict), consensus= synth?synth.consensus:(local&&local.consensus);
+  if(verdict){const col=VERDICT_COLOR[verdict]||C.muted;$("committeeVerdict").textContent=verdict;$("committeeVerdict").style.color=col;
+    $("committeeMeta").textContent= synth?`final call · agreement ${consensus}%${synth.seatsResponded!=null?` · ${synth.seatsResponded}/${synth.seatsConfigured} seats`:""}${synth.by?" · chair "+synth.by:""}`:`${local.count}/4 logged · consensus ${consensus}%`;
+    $("consensusBar").style.width=(consensus||0)+"%";$("consensusBar").style.background=consensus>=70?C.act:consensus>=50?C.watch:C.risk;
+    $("lowConfWrap").innerHTML=(consensus!=null&&consensus<50)?'<div class="lowconf"><b>Low agreement.</b> The models genuinely disagree — the final call is a judged decision, not a vote. Deploy smaller or wait for the next data point.</div>':'';}
+  else{$("committeeVerdict").textContent="NOT RUN";$("committeeVerdict").style.color=C.muted;$("committeeMeta").textContent="Run Deep Triggers for a committee verdict";$("consensusBar").style.width="0%";$("lowConfWrap").innerHTML='';}
+  if(S.backendUrl){
+    // Backend committee is active — the real seats (PM / Risk / Macro / Devil) come from the backend,
+    // so the legacy manual ChatGPT/Claude/Gemini/Perplexity buttons are hidden to avoid confusion.
+    $("modelLog").innerHTML='<div style="font-size:11.5px;color:var(--muted-2);padding:4px 2px">Manual model logging is hidden while the backend committee is connected. Run Deep Triggers to see the live seats.</div>';
+  } else {
+    $("modelLog").innerHTML=["ChatGPT","Claude","Gemini","Perplexity"].map(m=>{const tag={ChatGPT:"strategist",Claude:"risk analyst",Gemini:"data scanner",Perplexity:"web research"}[m];const sel=S.committee.models[m];
+      return `<div class="ml-row"><div class="who">${m}<span class="tag">${tag}</span></div><div class="verdict-btns">${VERDICTS.map(v=>`<button class="vb${sel===v?' sel':''}" data-model="${m}" data-verdict="${v}" style="${sel===v?`background:${VERDICT_COLOR[v]}`:''}">${v}</button>`).join("")}</div></div>`;}).join("");
+  }
+}
+
+function renderGuide(c){
+  $("guideStamp").textContent=c.lightAct;
+  const doItems=[];let doMain;
+  if(c.gateBlock){doMain=c.conviction.level==="BLACK"?"WAIT — NO ALLOCATION":"WATCH ONLY";}
+  else if(c.light==="red"){doMain=c.status==="REDUCE RISK"?"WAIT — DO NOT ADD RISK":"WAIT TODAY";}
+  else if(c.light==="amber"){doMain=c.gateSmall?"DEPLOY SMALL ONLY":(c.waitForEvent&&c.ev?("WAIT FOR "+c.ev.name.toUpperCase()):"DEPLOY GRADUALLY");}
+  else doMain=c.deployNow>0?"DEPLOY NOW":"STAY ON PLAN";
+  doItems.push("Do not sell anything today.");
+  if(c.gateBlock){
+    const gr=c.conviction.reasons.filter(r=>r.sev==="red").slice(0,3);
+    doItems.push("No deployment today — conviction is "+c.conviction.level+":");
+    gr.forEach(r=>doItems.push("  • "+r.txt));
+    doItems.push("Re-run once these clear (fresh data + committee), then deploy.");
+  }
+  else if(c.gateSmall&&c.deployNow>0){doItems.push("Inputs are soft — deploy a small tranche only (~"+usd(Math.min(c.deployNow,250))+"), not the full "+usd(c.deployNow)+".");}
+  else if(c.deployNow>0&&c.light!=="red"){if(c.waitForEvent)doItems.push("After the data lands, deploy "+usd(c.deployNow)+":");c.split.slice(0,4).forEach(s=>doItems.push((c.waitForEvent?"  • ":"Buy ")+usd(s.amt)+" "+s.asset+" ("+bhd(s.amt)+")"));}
+  else doItems.push("No deployment today — let the plan run.");
+  doItems.push("Then close the app and get on with your day.");
+  const dont=[];
+  if(c.topStock)dont.push("Buy "+c.topStock+" just because it's red.");
+  dont.push("Panic sell on a down day.","Wait for the 'perfect' bottom.","Keep refreshing every 10 minutes.","Rip up the plan over one CPI print.");
+  const next=c.ev?`After ${c.ev.name} (${c.ev.days}d).`:"Tomorrow, 5:00pm Bahrain time.";
+  let why;
+  if(c.cashDrag==="High"||c.cashDrag==="Severe")why=`Your cash is high (${c.cashPc.toFixed(0)}%) and dry powder works best deployed steadily, not hoarded.`;
+  else if(c.status==="REDUCE RISK")why="Risk is high or one position is too big. Protecting the portfolio beats chasing more.";
+  else if(c.waitForEvent)why="A high-impact event is hours away. Waiting for the print removes a coin-flip from your entry.";
+  else why="Conditions are normal. Steady deployment beats trying to time the exact bottom.";
+  $("guideBody").innerHTML=`
+    <div class="gcard do"><div class="glab">Do this</div><div class="gmain">${esc(doMain)}</div><ul>${doItems.map(x=>"<li>"+esc(x)+"</li>").join("")}</ul></div>
+    <div class="gcard dont"><div class="glab">Do not do this</div><ul>${dont.map(x=>"<li>"+esc(x)+"</li>").join("")}</ul></div>
+    <div class="gcard check"><div class="glab">Check again</div><div class="gmain" style="font-size:16px">${esc(next)}</div><div class="why">Why: ${esc(why)}</div></div>`;
+}
+
+function renderConfidence(){const pill=$("confPill");let level,cls;if(!S.lastRefresh){level="—";cls="";}else{const age=(Date.now()-S.lastRefresh)/60000;if(S.market.live&&age<10){level="HIGH";cls="high";}else if(age<240){level="MEDIUM";cls="medium";}else{level="LOW · STALE";cls="low";}}pill.textContent="DATA "+level;pill.className="pill "+cls;$("lastRefresh").textContent=S.lastRefresh?"updated "+timeAgo(S.lastRefresh):"never refreshed";}
+
+/* ───────── data source / confidence panel ───────── */
+const STAT_COL={live:C.act,active:C.act,manual:C.watch,stale:C.watch,"sync failed":C.risk,missing:C.hold,"not connected":C.hold,off:C.hold,none:C.hold};
+function statColor(s){return STAT_COL[s]||C.hold;}
+function isStale(){return S.lastRefresh && (Date.now()-S.lastRefresh)>4*3600000;}
+function renderSourcePanel(){
+  const stale=isStale(),fresh=S.lastRefresh?("updated "+timeAgo(S.lastRefresh)):"never refreshed";
+  const rows=[];
+  // eToro portfolio
+  rows.push(["eToro portfolio", S.source==="etoro"?"live":S.source==="etoro-fail"?"sync failed":S.backendUrl?"manual":"not connected", S.source==="etoro"?(stale?"sync ok · stale":"read-only sync"):S.source==="etoro-fail"?"using last known":S.backendUrl?"eToro not configured":"no backend set"]);
+  // Prices
+  rows.push(["Prices", S.market.live?(stale?"stale":"live"):(S.backendUrl||S.finnhubKey)?"manual":"not connected", S.market.live?fresh:(S.backendUrl||S.finnhubKey)?"last known / manual":"connect backend or key"]);
+  // VIX/yields
+  const haveMk=S.market.vix!=null||S.market.y10!=null;
+  rows.push(["VIX / yields", !haveMk?"missing":S.market.live?(stale?"stale":"live"):"manual", !haveMk?"enter in settings or refresh":S.market.live?"FRED daily close":"entered manually"]);
+  // CPI/Fed
+  const haveMa=S.macro.cpi!=null||S.macro.fedRate!=null;
+  rows.push(["CPI / Fed", !haveMa?"missing":S.market.live?(stale?"stale":"live"):"manual", !haveMa?"enter in settings or refresh":S.market.live?"FRED":"entered manually"]);
+  // News
+  rows.push(["News", (S.newsList&&S.newsList.length)?"live":S.backendUrl?"none":"not connected", (S.newsList&&S.newsList.length)?(S.newsList.length+" headlines"):S.backendUrl?"none pulled yet":"needs backend"]);
+  // AI committee
+  const synth=S.committee.synth;
+  rows.push(["AI committee", S.backendUrl?"active":Object.values(S.committee.models).some(Boolean)?"manual":"off", S.backendUrl?(synth?"last verdict "+(synth.verdict||"—"):"backend ready"):Object.values(S.committee.models).some(Boolean)?"manual entry":"copy/paste mode"]);
+  // Memory/history
+  rows.push(["Memory / history", "active", (S.history.length||0)+" snapshots · "+(S.journal.length||0)+" journal"]);
+  // Alerts
+  const en=Object.values(S.alertSettings).filter(Boolean).length;
+  rows.push(["Alerts", en>0?"active":"off", en+" of 6 categories on"]);
+  $("sourcePanel").innerHTML=rows.map(([l,s,n])=>`<div class="src-row"><span class="sdot" style="background:${statColor(s)}"></span><span class="slabel">${esc(l)}</span><span class="snote">${esc(n)}</span><span class="sstat" style="color:${statColor(s)}">${esc(s)}</span></div>`).join("");
+}
+
+/* ───────── RUN SYSTEM CHECK ───────── */
+const LEVEL_COL={GREEN:C.act,AMBER:C.watch,RED:C.risk};
+async function runSystemCheck(){
+  const box=$("sysCheckResult");
+  box.innerHTML='<div style="font-size:12.5px;color:var(--muted);margin-top:12px"><span class="spin"></span> Running system check…</div>';
+  const checks=[]; const push=(label,level,msg)=>checks.push({label,level,msg});
+  const base=S.backendUrl?S.backendUrl.replace(/\/+$/,""):null;
+  let health=null,portfolio=null,prices=null,market=null,prompts=null,history=null,backendUp=false;
+  if(base){
+    const J=async u=>{const r=await fetch(u);if(!r.ok)throw new Error("HTTP "+r.status);return r.json();};
+    try{health=await J(base+"/api/health");backendUp=true;}catch(e){push("Backend connection","RED","Unreachable: "+e.message+". Check the URL / that the server is running.");}
+    if(backendUp){
+      push("Backend connection","GREEN","Reachable at "+base+".");
+      const settled=await Promise.allSettled([J(base+"/api/portfolio"),J(base+"/api/prices?symbols=VOO"),J(base+"/api/market"),J(base+"/api/prompts"),J(base+"/api/history?limit=1")]);
+      [portfolio,prices,market,prompts,history]=settled.map(s=>s.status==="fulfilled"?s.value:null);
+    }
+  } else {
+    push("Backend connection","AMBER","No backend URL set — running in manual / offline mode. Data is what you enter; AI is copy/paste.");
+  }
+  // API keys detected
+  if(health){const k=health.keys||{};const data=(k.finnhub?1:0)+(k.fred?1:0);push("API keys detected", data===2?"GREEN":data===1?"AMBER":"RED", data===2?"Finnhub + FRED present.":data===1?"Only one data key — some feeds will be manual.":"No data keys on the backend.");}
+  else if(base){/* covered by RED backend */}
+  else push("API keys detected","AMBER","Keys live on the backend; none in this file by design.");
+  // eToro read-only
+  if(health){const e=health.keys&&health.keys.etoro; if(portfolio&&portfolio.source==="etoro")push("eToro read-only","GREEN","Connected, read-only — holdings syncing.");else if(portfolio&&portfolio.connected===false&&portfolio.error)push("eToro read-only","RED","Configured but failing: "+portfolio.error);else push("eToro read-only", e?"AMBER":"AMBER", e?"Key set but no holdings returned yet.":"Not configured — using manual portfolio.");}
+  else push("eToro read-only","AMBER","Manual portfolio (no backend).");
+  // Price feed
+  if(health){const ok=prices&&prices.prices&&prices.prices.VOO&&prices.prices.VOO.price; push("Price feed", ok?"GREEN":health.keys.finnhub?"RED":"AMBER", ok?("VOO "+usd(prices.prices.VOO.price)+" returned."):health.keys.finnhub?"Finnhub key set but no quote returned.":"No Finnhub key — prices are manual.");}
+  else push("Price feed", S.finnhubKey?"AMBER":"AMBER", S.finnhubKey?"Direct Finnhub key set (no backend).":"Manual / last-known prices.");
+  // Macro feed
+  if(health){const ok=market&&(market.vix!=null||market.y10!=null); push("Macro feed", ok?"GREEN":health.keys.fred?"RED":"AMBER", ok?"FRED returning VIX / yields / CPI.":health.keys.fred?"FRED key set but no data returned.":"No FRED key — macro is manual.");}
+  else push("Macro feed","AMBER","Manual macro entry (no backend).");
+  // AI keys
+  if(health){const k=health.keys||{};const seats=(typeof health.committeeSeats==="number")?health.committeeSeats:["openai","anthropic","gemini","perplexity","openrouter"].filter(x=>k[x]).length; push("AI committee keys", seats>0?"GREEN":"AMBER", seats>0?(seats+" committee seat(s) active — debate + synthesiser running."):"No AI keys — committee runs in manual copy/paste mode.");}
+  else push("AI committee keys","AMBER","Copy/paste mode (no backend).");
+  // History store
+  if(base){push("History store", history?"GREEN":"AMBER", history?"Backend history store reachable. Local memory also active ("+S.history.length+" snapshots).":"Backend store unreachable — local memory still active ("+S.history.length+" snapshots).");}
+  else push("History store","GREEN","Local memory active ("+S.history.length+" snapshots, "+S.journal.length+" journal entries).");
+  // Prompt files
+  if(base){const ok=prompts&&prompts.files&&prompts.files.length>=3&&prompts.prompts; push("Prompt files", ok?"GREEN":"AMBER", ok?(prompts.files.length+" prompt files loaded."):"Prompt files not found — server defaults in use.");}
+  else push("Prompt files","AMBER","Served by backend when deployed.");
+  // Alerts engine
+  const en=Object.values(S.alertSettings).filter(Boolean).length; push("Alerts engine", en>0?"GREEN":"AMBER", en>0?(en+" of 6 categories active."):"All alert categories are switched off.");
+
+  const worst=checks.some(c=>c.level==="RED")?"RED":checks.some(c=>c.level==="AMBER")?"AMBER":"GREEN";
+  const label={GREEN:"ALL SYSTEMS GREEN",AMBER:"PARTIAL — running on manual / some feeds off",RED:"SOMETHING IS BROKEN — see red items"}[worst];
+  box.innerHTML=`<div class="chk-summary"><span class="sdot" style="width:13px;height:13px;border-radius:50%;background:${LEVEL_COL[worst]}"></span><span class="big" style="color:${LEVEL_COL[worst]}">${worst}</span><span style="font-size:12.5px;color:var(--muted)">${esc(label)}</span></div>`+
+    checks.map(c=>`<div class="chk-row"><span class="cdot" style="background:${LEVEL_COL[c.level]}"></span><span class="clabel">${esc(c.label)}</span><span class="cmsg"><b style="color:${LEVEL_COL[c.level]}">${c.level}</b> — ${esc(c.msg)}</span></div>`).join("")+
+    `<div class="hint" style="margin-top:10px">GREEN = working · AMBER = partial or manual · RED = broken. Re-run after changing settings or connecting the backend.</div>`;
+}
+
+function writeSnapshot(c){try{c=c||compute();S.snapshots[todayKey()]={spx:S.market.spx,ndx:S.market.ndx,vix:S.market.vix,y2:S.market.y2,y10:S.market.y10,dxy:S.market.dxy,cutProb:S.macro.cutProb,fg:S.macro.fg,news:S.macro.news,ts:Date.now()};const keys=Object.keys(S.snapshots).sort();while(keys.length>40)delete S.snapshots[keys.shift()];store.save(S);
+  localStorage.setItem("andyos_investing_snapshot",JSON.stringify({value:r0(c.pot),cashPc:+c.cashPc.toFixed(1),status:c.status,light:c.light,danger:c.danger,opportunity:c.opportunity,source:S.source,updated:S.lastRefresh,ts:Date.now()}));}catch(e){}}
+
+/* ───────── data fetch ───────── */
+function applyEtoro(j){
+  const nh={};
+  (j.holdings||[]).forEach(h=>{const sym=String(h.symbol||"").toUpperCase();if(!sym)return;
+    nh[sym]={name:h.name||meta(sym).name,units:+h.units||0,avgCost:(S.holdings[sym]&&S.holdings[sym].avgCost)||0,price:+h.currentPrice||0,plUsd:h.plUsd,_etoro:true,_dp:null};});
+  if(Object.keys(nh).length){S.holdings=nh;}
+  if(j.availableCashUsd!=null)S.cash=+j.availableCashUsd;
+  S.etoroConnected=true;S.etoroDayPl=j.todayPlUsd!=null?+j.todayPlUsd:null;S.etoroTotalPl=j.totalPlUsd!=null?+j.totalPlUsd:null;
+  S.etoroDayPlEst=!!j.todayPlEstimated;S.etoroDayPlPct=j.todayPlPct!=null?+j.todayPlPct:null;S.etoroDayPlPartial=!!j.todayPlPartial;
+  Object.keys(S.holdings).forEach(s=>{if(S.targets[s]==null)S.targets[s]=0;});
+  S.source="etoro";
+}
+async function refreshLive(){
+  S.behaviour=S.behaviour||{refreshLog:[],deepLog:[]};S.behaviour.refreshLog.push(Date.now());
+  const btn=$("refreshBtn"),old=btn.innerHTML;btn.disabled=true;btn.innerHTML='<span class="spin"></span> REFRESHING';
+  let msg="Refreshed (manual prices)";
+  try{
+    if(S.backendUrl){
+      const base=S.backendUrl.replace(/\/+$/,""),J=u=>fetch(u).then(r=>r.json());
+      const [pf,pr,mk,ma,ev,nw]=await Promise.allSettled([
+        J(base+"/api/portfolio"),
+        J(base+"/api/prices?symbols="+syms().join(",")),
+        J(base+"/api/market"), J(base+"/api/macro"), J(base+"/api/events"), J(base+"/api/news")]);
+      let etoro=false,etoroFail=false,priceLive=false;
+      if(pf.status==="fulfilled"){const j=pf.value;
+        if(j.source==="etoro"&&Array.isArray(j.holdings)&&j.holdings.length){applyEtoro(j);etoro=true;}
+        else if(j.connected===false&&j.error){etoroFail=true;}
+      }
+      if(!etoro){ S.etoroConnected=false; S.source=etoroFail?"etoro-fail":"manual";
+        if(pr.status==="fulfilled"&&pr.value.prices){Object.entries(pr.value.prices).forEach(([a,q])=>{if(S.holdings[a]&&q&&q.price){S.holdings[a].price=q.price;S.holdings[a]._dp=q.dp;priceLive=true;}});}
+      }
+      if(mk.status==="fulfilled"){const m=mk.value;["spx","ndx","vix","y2","y10","dxy"].forEach(k=>{if(m[k]!=null)S.market[k]=m[k];});}
+      if(ma.status==="fulfilled"){const m=ma.value;["cpi","cpiPrev","fedRate","cutProb","fg","breadth"].forEach(k=>{if(m[k]!=null)S.macro[k]=m[k];});}
+      if(ev.status==="fulfilled"&&Array.isArray(ev.value.events)){ev.value.events.forEach(be=>{const cur=S.events.find(x=>x.name===be.name);if(cur){if(be.date)cur.date=be.date;if(be.time)cur.time=be.time;}else S.events.push(be);});}
+      if(nw.status==="fulfilled"&&Array.isArray(nw.value.news)){S.newsList=nw.value.news;if(nw.value.news[0])S.macro.news=nw.value.news[0].headline;}
+      S.market.live=etoro||priceLive;
+      msg= etoro?"Synced from eToro (read-only)": etoroFail?"eToro sync unavailable — using manual/last known data": (pf.status==="rejected"&&mk.status==="rejected")?"Backend unreachable — check the URL": priceLive?"Live data refreshed from backend":"Backend reached — prices not live yet (cold start / off-hours), using last known";
+    } else if(S.finnhubKey){
+      S.etoroConnected=false;S.source="manual";let anyLive=false,failed=[];
+      for(const a of syms()){if(!(S.holdings[a].units>0))continue;try{const r=await fetch(`https://finnhub.io/api/v1/quote?symbol=${a}&token=${encodeURIComponent(S.finnhubKey)}`);if(!r.ok)throw 0;const j=await r.json();if(j&&j.c){S.holdings[a].price=j.c;S.holdings[a]._dp=j.dp;anyLive=true;}else failed.push(a);}catch(e){failed.push(a);}}
+      S.market.live=anyLive;msg=failed.length?("Live: "+failed.length+" failed, kept last known"):"Live prices refreshed";
+    } else {S.etoroConnected=false;S.source="manual";S.market.live=false;}
+  }catch(e){msg="Refresh error: "+e.message;}
+  S.lastRefresh=Date.now();persist();btn.disabled=false;btn.innerHTML=old;const c=render();recordSnapshot(c,"refresh");toast(msg);
+}
+
+/* ───────── deep triggers ───────── */
+function buildPacket(c){
+  const L=[];
+  L.push("MARKET BRIEFING PACKET — "+new Date().toISOString());
+  L.push("INVESTOR: Andrew Collins, Bahrain. Long-term ETF/stock investor on eToro. Wants blunt, decision-led answers. RULES: no auto-trading, leverage, margin, options, shorting, crypto. Reserve kept aside: "+usd(+S.reserve||0)+". Portfolio source: "+(S.source==="etoro"?"eToro read-only sync":"manual")+".");
+  L.push("");
+  L.push("PORTFOLIO "+usd(c.pot)+" | cash "+usd(c.cash)+" ("+c.cashPc.toFixed(1)+"%) | dry powder "+usd(c.deployable)+" | total P/L "+usd(c.totPl));
+  c.list.forEach(a=>{const r=c.rows[a];L.push(`  ${a} (${meta(a).label}): ${usd(r.val)} (${r.nowPc.toFixed(1)}%, target ${r.tgtPc}%, opp ${c.oppScores[a]})`);});
+  L.push("  CASH: "+c.cashPc.toFixed(1)+"% (target "+c.cashTgt+"%) — drag "+c.cashDrag);
+  if(c.topStock)L.push("  CONCENTRATION: largest single stock "+c.topStock+" at "+c.concPc.toFixed(1)+"%");
+  L.push("");
+  const mk=S.market,ma=S.macro;
+  L.push("MARKET: S&P "+(mk.spx??'?')+" | Nasdaq "+(mk.ndx??'?')+" | VIX "+(mk.vix??'?')+" | 2Y "+(mk.y2??'?')+"% | 10Y "+(mk.y10??'?')+"% | DXY "+(mk.dxy??'?'));
+  L.push("MACRO: CPI "+(ma.cpi??'?')+"% (prior "+(ma.cpiPrev??'?')+"%, risk "+ma.cpiRisk+") | Fed funds "+(ma.fedRate??'?')+"% | cut prob "+(ma.cutProb??'?')+"% | Fear&Greed "+(ma.fg??'?')+" | breadth "+(ma.breadth??'?')+"%");
+  if(ma.news)L.push("NEWS: "+ma.news);
+  const ev=c.ev;L.push("NEXT EVENT: "+(ev?ev.name+" in "+ev.days+"d ("+ev.impact+")":"none dated"));
+  L.push("APP SCORES: market danger "+c.danger+"/100 ("+c.dangerLabel+") | opportunity "+c.opportunity+"/100 | health "+c.health+"/10 | status "+c.status+" | suggested deploy "+usd(c.deployNow)+(c.waitForEvent?" AFTER event":" now"));
+  L.push("");
+  L.push("TASK: From your assigned role, give a blunt independent read of (1) portfolio, (2) market, (3) the key risk now, (4) the key opportunity now, (5) deploy today yes/no and where. End with ONE verdict: BUY AGGRESSIVELY / BUY GRADUALLY / HOLD / WAIT / REDUCE RISK. Finish with: IF I HAD $1,000 TODAY → exact split or WAIT FOR <event>.");
+  return L.join("\n");
+}
+// Portfolio-FREE context for the Geopolitical Risk Officer (Gemini, dedicated geo brief). Deliberately
+// contains no holdings, no values, no P/L and no history — only market/macro/news so it can flag external risks.
+function buildGeoPacket(c){
+  const mk=S.market,ma=S.macro,L=[];
+  L.push("GEOPOLITICAL CONTEXT — "+new Date().toISOString()+" (no portfolio data included)");
+  L.push("MARKET: S&P "+(mk.spx??'?')+" | Nasdaq "+(mk.ndx??'?')+" | VIX "+(mk.vix??'?')+" | 2Y "+(mk.y2??'?')+"% | 10Y "+(mk.y10??'?')+"% | DXY "+(mk.dxy??'?'));
+  L.push("MACRO: CPI "+(ma.cpi??'?')+"% (prior "+(ma.cpiPrev??'?')+"%) | Fed funds "+(ma.fedRate??'?')+"% | cut prob "+(ma.cutProb??'?')+"% | Fear&Greed "+(ma.fg??'?'));
+  const ev=c.ev;L.push("NEXT DATED EVENT: "+(ev?ev.name+" in "+ev.days+"d ("+ev.impact+")":"none dated"));
+  if(Array.isArray(S.newsList)&&S.newsList.length){L.push("RECENT HEADLINES:");S.newsList.slice(0,8).forEach(n=>L.push("  - "+esc(n.headline||n)));}
+  else if(ma.news)L.push("NEWS: "+ma.news);
+  return L.join("\n");
+}
+const AI_LINKS=[["ChatGPT","https://chat.openai.com/"],["Claude","https://claude.ai/new"],["Gemini","https://gemini.google.com/app"],["Perplexity","https://www.perplexity.ai/"]];
+
+const shortModel=m=>{if(!m)return'';let x=String(m).split('/').pop();return x.replace(/:free$/,'');};
+function voteBreakdownHTML(j){
+  if(!Array.isArray(j.seatStatus)||!j.seatStatus.length)return'';
+  const respN=j.seatsResponded!=null?j.seatsResponded:j.seatStatus.filter(s=>s.status==='ok').length;
+  const confN=j.seatsConfigured!=null?j.seatsConfigured:j.seatStatus.length;
+  const failN=Math.max(0,confN-respN);
+  const tally=j.tally||{};
+  const tallyStr=Object.entries(tally).sort((a,b)=>b[1]-a[1]).map(([k,n])=>`${n} ${k}`).join('  ·  ')||'—';
+  const usedAnyFallback=j.seatStatus.some(s=>s.usedFallback);
+  let h=`<div class="vote-card"><div class="vote-h">Vote breakdown</div><div class="vote-tally">${esc(tallyStr)}</div><div class="vote-sub">${respN} of ${confN} seats responded${failN>0?` · <span style="color:var(--risk)">${failN} dropped out</span>`:''}${j.verdict?` · final call is judged, not a majority vote`:''}</div>`;
+  if(failN>0)h+=`<div class="lowconf" style="margin-top:9px"><b>${failN} seat${failN>1?'s':''} failed to respond.</b> Agreement is over the seats that answered only — not all ${confN}. ${j.seatStatus.some(s=>s.isDevil&&s.status!=='ok')?"The Devil's Advocate is among them, so the bear case is under-represented this run.":""}</div>`;
+  if(usedAnyFallback)h+=`<div style="font-size:11.5px;color:#a9c2ff;margin-top:8px">↩ A seat's primary model failed and its fallback answered — see "Model used" below.</div>`;
+  h+=`<table class="seat-tbl"><thead><tr><th>Seat</th><th>Primary model</th><th>Model used</th><th>Verdict</th><th>Status</th><th>Reason</th></tr></thead><tbody>`;
+  j.seatStatus.forEach(s=>{const ok=s.status==='ok';const col=ok?(VERDICT_COLOR[s.verdict]||C.muted):C.risk;
+    const dev=s.isDevil?` <span class="tag" style="background:var(--risk-dim);color:var(--risk)">devil</span>`:'';
+    const indep=ok&&s.independentVerdict&&s.independentVerdict!==s.verdict?`<div style="font-size:10px;color:var(--muted-2);margin-top:2px">was ${esc(s.independentVerdict)} pre-debate</div>`:'';
+    const usedCell= ok ? (s.usedFallback?`<span style="color:#a9c2ff">${esc(shortModel(s.modelUsed))}</span><div style="font-size:10px;color:#a9c2ff">↩ fallback: ${esc(s.providerUsed||'')}</div>`:`<span style="color:var(--muted-2)">${esc(shortModel(s.modelUsed||s.model))}</span>`) : `<span style="color:var(--muted-2)">—</span>`;
+    const reasonCell= ok ? (s.usedFallback?`<span style="color:#a9c2ff;font-size:11px">primary failed → fallback used</span>`:`<span style="color:var(--muted-2)">—</span>`) : `<span style="color:var(--risk);font-size:11px">${esc(s.reason||'no response')}</span>`;
+    h+=`<tr><td class="seat-name" data-label="Seat">${esc(s.seat)}${dev}</td><td data-label="Primary model" style="color:var(--muted-2);font-size:10.5px">${esc(shortModel(s.model))}</td><td data-label="Model used" style="font-size:11px">${usedCell}</td><td data-label="Verdict" style="color:${col};font-weight:600">${ok?esc(s.verdict||'—'):'—'}${indep}</td><td data-label="Status">${ok?'<span style="color:var(--act)">✓ responded</span>':'<span style="color:var(--risk)">✗ failed</span>'}</td><td data-label="Reason">${reasonCell}</td></tr>`;});
+  h+=`</tbody></table></div>`;
+  return h;
+}
+function geoCardHTML(g){if(!g)return'';if(g.error){return `<div class="geo-card" style="border-color:rgba(229,72,77,.4);background:rgba(229,72,77,.06)"><div class="geo-h" style="color:#f0a0a3">🌍 Geopolitical Risk Officer — couldn't run</div><div style="font-size:12px;color:var(--muted);margin-top:6px">Geo officer${g.model?" ("+esc(g.model)+")":""} error: ${esc(g.error)}</div>${g.note?`<div style="font-size:11px;color:var(--muted-2);margin-top:5px">Reply: ${esc(g.note)}</div>`:''}</div>`;}let h=`<div class="geo-card"><div class="geo-h">🌍 Geopolitical Risk Officer <span style="font-weight:400;color:var(--muted-2);font-size:11px">· ${esc(g.by==='grok'?'Grok':'Gemini')}${g.model?" "+esc(g.model):""} · separate from the vote, not a verdict</span></div>`;if(g.summary)h+=`<div style="font-size:12.5px;color:var(--muted);margin-top:7px">${esc(g.summary)}</div>`;if(Array.isArray(g.events)&&g.events.length)h+=`<ul style="margin:8px 0 0;padding-left:18px;font-size:12.5px;color:var(--fg)">${g.events.map(e=>"<li style='margin-bottom:3px'>"+esc(e)+"</li>").join("")}</ul>`;if(g.couldMakeWrong)h+=`<div style="font-size:12.5px;margin-top:9px"><b style="color:var(--risk)">Could make the committee wrong:</b> ${esc(g.couldMakeWrong)}</div>`;if(g.watch)h+=`<div style="font-size:12.5px;margin-top:5px"><b style="color:var(--watch)">Watch:</b> ${esc(g.watch)}</div>`;return h+`</div>`;}
+async function runDeepTriggers(){
+  S.behaviour=S.behaviour||{refreshLog:[],deepLog:[]};S.behaviour.deepLog.push(Date.now());
+  const c=render();$("deepCard").style.display="block";$("deepCard").scrollIntoView({behavior:"smooth",block:"start"});
+  const packet=buildPacket(c);renderGrand(c);
+  const journalEntry=addJournalEntry(c);
+  if(S.backendUrl){
+    const base=S.backendUrl.replace(/\/+$/,"");
+    $("packetWrap").innerHTML=`<div style="font-size:13px;color:var(--muted);margin-top:12px"><span class="spin"></span> Committee analysing — your seats challenge each other across two rounds, then the chair judges the strongest case…</div>`;
+    try{const r=await fetch(base+"/api/deep-triggers",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({packet,geoPacket:buildGeoPacket(c)})});if(!r.ok)throw new Error("HTTP "+r.status);const j=await r.json();
+      if(!j.models||!j.models.length){
+        S.committee.models={};
+        S.committee.synth={failed:true,seatsConfigured:j.seatsConfigured!=null?j.seatsConfigured:4,seatsResponded:j.seatsResponded||0,note:j.risk||"No committee models responded.",seatStatus:j.seatStatus,geoRisk:j.geoRisk};
+        renderCommittee();updateJournalVerdict(journalEntry.id);
+        $("packetWrap").innerHTML=voteBreakdownHTML(j)+`<div class="lowconf" style="margin-top:12px"><b>No seats responded — no verdict shown.</b> ${esc(j.risk||"")}<br><br>This is almost always the free-tier daily limit (OpenRouter 50/day + Gemini), drained from today's testing. It resets overnight — try again tomorrow. A stale or invented verdict is deliberately <b>not</b> shown.</div>`+geoCardHTML(j.geoRisk);
+        persist();recordSnapshot(c,"deep");return;
+      }
+      (j.models||[]).forEach(m=>{if(m.name&&m.verdict&&S.committee.models.hasOwnProperty(m.name))S.committee.models[m.name]=m.verdict;});
+      S.committee.synth=(j.verdict||j.synthesised)?{verdict:j.verdict,consensus:j.consensus,agree:j.agree||[],disagree:j.disagree||[],strongest:j.strongestArgument||"",weakest:j.weakestAssumption||"",risk:j.risk||"",by:j.synthBy||null,seatsResponded:j.seatsResponded,seatsConfigured:j.seatsConfigured,seatStatus:j.seatStatus,geoRisk:j.geoRisk}:null;
+      renderCommittee(); if(j.ifIHad1000||j.idiotGuide)renderBackendGrand(j);
+      updateJournalVerdict(journalEntry.id);
+      let html='';
+      // Vote breakdown + seat status — shows every configured seat, the model that actually answered,
+      // any fallback used, and the failure reason for dropped seats.
+      html+=voteBreakdownHTML(j);
+      if(S.committee.synth){const s=S.committee.synth,li=a=>Array.isArray(a)&&a.length?("<ul style='margin:4px 0 0;padding-left:18px'>"+a.map(x=>"<li>"+esc(x)+"</li>").join("")+"</ul>"):'<span style="color:var(--muted-2)">—</span>';
+        html+=`<div class="synth"><div class="synth-h">Committee synthesis</div>
+          <div class="synth-row"><span class="sl" style="color:var(--act)">Where they agree</span>${li(s.agree)}</div>
+          <div class="synth-row"><span class="sl" style="color:var(--watch)">Where they disagree</span>${li(s.disagree)}</div>
+          <div class="synth-row"><span class="sl" style="color:var(--data)">Strongest argument</span><div>${esc(s.strongest)||'—'}</div></div>
+          <div class="synth-row"><span class="sl" style="color:var(--risk)">Weakest assumption</span><div>${esc(s.weakest)||'—'}</div></div>
+          ${s.risk?`<div class="synth-row"><span class="sl" style="color:var(--risk)">Risk warning</span><div>${esc(s.risk)}</div></div>`:''}
+          <div style="font-size:11.5px;color:var(--muted-2);margin-top:9px">Final verdict is a judged call on the strongest argument — not an average of the four.</div></div>`;}
+      html+=geoCardHTML(j.geoRisk);
+      html+='<div style="margin-top:12px">';
+      (j.models||[]).forEach(m=>{const indep=m.independentVerdict&&m.independentVerdict!==m.verdict?`<span style="font-size:10.5px;color:var(--muted-2);margin-left:6px">independent: ${esc(m.independentVerdict)} → after debate</span>`:'';const dev=m.isDevil?`<span class="tag" style="background:var(--risk-dim);color:var(--risk)">devil's advocate</span>`:'';const mdl=m.model?`<div style="font-size:10.5px;color:var(--muted-2);margin-top:2px">${esc(m.name||'')} · ${esc(m.model)}</div>`:'';html+=`<div class="ml-row"><div class="who">${esc(m.name||'AI')}<span class="tag">${esc(m.verdict||'—')}</span>${dev}${indep}</div>${mdl}${m.keyArgument?`<div style="font-size:11.5px;color:var(--data);margin-top:5px">Key point: ${esc(asText(m.keyArgument))}</div>`:''}${m.risk?`<div style="font-size:11.5px;color:var(--risk);margin-top:3px">Risk: ${esc(asText(m.risk))}</div>`:''}${m.deploy?`<div style="font-size:11.5px;color:var(--act);margin-top:3px">Deploy: ${esc(asText(m.deploy))}</div>`:''}<div style="font-size:12.5px;color:var(--muted);margin-top:6px;white-space:pre-wrap">${esc(asText(m.text))}</div></div>`;});
+      if(!j.models||!j.models.length)html+=`<div class="lowconf">${esc(j.risk||'No AI models configured on the backend.')}</div>`;
+      html+='</div>';$("packetWrap").innerHTML=html;
+    }catch(e){$("packetWrap").innerHTML=`<div class="lowconf">Backend AI call failed: ${esc(e.message)}. You can still use the manual packet below.</div>`+packetHTML(packet);}
+  } else $("packetWrap").innerHTML=packetHTML(packet);
+  persist(); recordSnapshot(c,"deep");
+}
+function renderGrand(c){
+  const g=c.grand;
+  if(g.wait){$("grandWrap").innerHTML=`<div class="grand" style="border-color:var(--watch);background:var(--watch-dim)"><div class="h" style="color:#f0cd8b">If I had $1,000 today</div><div class="b">${esc(g.reason)}</div><div style="font-size:12px;color:var(--muted);margin-top:8px">A high-impact event or high danger is in play. Holding the $1,000 a day or two removes a coin-flip from the entry.</div></div>`;return;}
+  $("grandWrap").innerHTML=`<div class="grand"><div class="h">If I had $1,000 today</div><div class="b">Split it like this</div><div class="split">${g.split.map(s=>`<span class="s">${usd(s.amt)} ${s.asset}</span>`).join("")||'<span class="s">Nothing compelling — hold</span>'}</div><div style="font-size:12px;color:var(--muted);margin-top:8px">Weighted toward the highest opportunity scores, capped on single stocks. Mirrors how to deploy any new cash today.</div></div>`;
+}
+function renderBackendGrand(j){
+  let html=`<div class="grand"><div class="h">If I had $1,000 today · committee</div><div class="b">${esc(j.ifIHad1000||'—')}</div>`;
+  if(j.idiotGuide){const g=j.idiotGuide,list=a=>Array.isArray(a)?a.map(x=>"<li>"+esc(x)+"</li>").join(""):"";
+    html+=`<div style="margin-top:11px;display:grid;gap:7px;font-size:12.5px">`;
+    if(g.do&&g.do.length)html+=`<div><b style="color:var(--act)">Do:</b><ul style="margin:4px 0 0;padding-left:18px">${list(g.do)}</ul></div>`;
+    if(g.dont&&g.dont.length)html+=`<div><b style="color:var(--risk)">Don't:</b><ul style="margin:4px 0 0;padding-left:18px">${list(g.dont)}</ul></div>`;
+    if(g.checkAgain)html+=`<div><b style="color:var(--watch)">Check again:</b> ${esc(g.checkAgain)}</div>`;
+    html+=`</div>`;}
+  html+=`</div>`;$("grandWrap").innerHTML=html;
+}
+function packetHTML(packet){return `<div style="font-size:12px;color:var(--muted);margin-top:14px">No backend set, so keys stay off your device. Copy this into each model, then log their verdict above to get the consensus.</div><textarea class="packet-box" id="packetBox" readonly>${esc(packet)}</textarea><div class="ai-links"><button id="copyPacket">Copy packet</button>${AI_LINKS.map(([n,u])=>`<a href="${u}" target="_blank" rel="noopener">${n} ↗</a>`).join("")}</div>`;}
+
+/* ───────── modals ───────── */
+function openModal(id){$(id).classList.add("open");}
+function closeModal(el){el.classList.remove("open");}
+document.querySelectorAll("[data-close]").forEach(b=>b.onclick=e=>closeModal(e.target.closest(".modal-bg")));
+document.querySelectorAll(".modal-bg").forEach(bg=>bg.addEventListener("click",e=>{if(e.target===bg)closeModal(bg);}));
+
+function buildEditForm(){
+  const live=S.source==="etoro";
+  $("editHoldings").innerHTML=
+    (live?`<div style="font-size:11.5px;color:var(--act);margin-bottom:6px">Synced from eToro (read-only). Units &amp; prices come from eToro; you can still set average cost.</div>`:"")+
+    syms().map(a=>`<div class="sub-h" style="margin-top:12px;display:flex;justify-content:space-between;align-items:center"><span>${a} — ${esc(meta(a).name)}</span><button class="rm-hold" data-sym="${a}" style="background:transparent;border:1px solid var(--line);color:var(--risk);border-radius:7px;padding:3px 9px;font-size:11px">remove</button></div>
+      <div class="grid3"><div class="field"><label>Units</label><input type="number" step="any" id="e_${a}_u" value="${S.holdings[a].units||''}" ${live?'':''}></div>
+      <div class="field"><label>Avg cost $</label><input type="number" step="any" id="e_${a}_c" value="${S.holdings[a].avgCost||''}"></div>
+      <div class="field"><label>Price $ ${S.holdings[a]._etoro?'(eToro)':S.market.live?'(live)':''}</label><input type="number" step="any" id="e_${a}_p" value="${S.holdings[a].price||''}"></div></div>`).join("")+
+    `<div class="sub-h" style="margin-top:14px">Add holding</div>
+     <div class="grid3"><div class="field"><label>Ticker</label><input type="text" id="e_new_sym" placeholder="e.g. SCHD"></div>
+     <div class="field"><label>Units</label><input type="number" step="any" id="e_new_u" placeholder="0"></div>
+     <div class="field"><label>Avg cost $</label><input type="number" step="any" id="e_new_c" placeholder="0"></div></div>
+     <button class="btn sm" id="addHoldingBtn" style="border:1px solid var(--line);margin-top:4px">+ Add holding</button>`;
+  $("in_cash").value=S.cash||'';$("in_reserve").value=S.reserve||'';
+}
+$("editBtn").onclick=()=>{buildEditForm();openModal("editModal");};
+$("savePortfolio").onclick=()=>{
+  syms().forEach(a=>{const u=$(`e_${a}_u`),c=$(`e_${a}_c`),p=$(`e_${a}_p`);if(!u)return;S.holdings[a].units=+u.value||0;S.holdings[a].avgCost=+c.value||0;S.holdings[a].price=+p.value||0;});
+  S.cash=+$("in_cash").value||0;S.reserve=+$("in_reserve").value||0;persist();render();closeModal($("editModal"));toast("Portfolio saved");
+};
+
+$("setBtn").onclick=()=>{$("s_fx").value=S.fx;$("s_finnhub").value=S.finnhubKey||'';$("s_backend").value=S.backendUrl||'';
+  const mk=S.market;$("m_spx").value=mk.spx??'';$("m_ndx").value=mk.ndx??'';$("m_vix").value=mk.vix??'';$("m_2y").value=mk.y2??'';$("m_10y").value=mk.y10??'';$("m_dxy").value=mk.dxy??'';
+  const ma=S.macro;$("x_cpi").value=ma.cpi??'';$("x_cpi_prev").value=ma.cpiPrev??'';$("x_fed_rate").value=ma.fedRate??'';$("x_cutprob").value=ma.cutProb??'';$("x_fg").value=ma.fg??'';$("x_breadth").value=ma.breadth??'';$("x_cpirisk").value=ma.cpiRisk||"Medium";$("x_news").value=ma.news||'';
+  const tk=[...syms(),"CASH"];$("targetInputs").innerHTML=tk.map(a=>`<div class="field"><label>${a}</label><input type="number" step="any" id="t_${a}" value="${S.targets[a]??0}"></div>`).join("");tk.forEach(a=>$(`t_${a}`).addEventListener("input",sumTargets));sumTargets();
+  $("eventInputs").innerHTML=S.events.map((e,i)=>`<div class="grid3" style="margin-bottom:4px"><div class="field"><label>${esc(e.name)}</label><input type="date" id="ev_${i}" value="${e.date||''}"></div><div class="field"><label>Time UTC</label><input type="time" id="evt_${i}" value="${e.time||'13:30'}"></div><div class="field"><label>Impact</label><select id="evi_${i}"><option value="high"${e.impact==='high'?' selected':''}>High</option><option value="med"${e.impact==='med'?' selected':''}>Med</option><option value="low"${e.impact==='low'?' selected':''}>Low</option></select></div></div>`).join("");
+  const AT=[["cashDrag","Cash drag"],["deploy","Deployment signals"],["risk","Market risk"],["events","Event warnings"],["drift","Portfolio drift"],["behaviour","Behaviour warnings"]];
+  $("alertToggles").innerHTML=AT.map(([k,l])=>`<label><input type="checkbox" id="al_${k}" ${S.alertSettings[k]?"checked":""}> ${l}</label>`).join("");
+  openModal("setModal");};
+function sumTargets(){const tk=[...syms(),"CASH"];let s=0;tk.forEach(a=>s+=+($(`t_${a}`)?.value||0));const el=$("targetSum");el.textContent="Total: "+s.toFixed(0)+"%"+(Math.abs(s-100)>0.5?"  ← should be 100":"  ✓");el.style.color=Math.abs(s-100)>0.5?C.watch:C.act;}
+$("saveSettings").onclick=()=>{S.fx=+$("s_fx").value||2.65;S.finnhubKey=$("s_finnhub").value.trim();S.backendUrl=$("s_backend").value.trim();
+  const num=v=>v===''?null:+v;
+  S.market.spx=num($("m_spx").value);S.market.ndx=num($("m_ndx").value);S.market.vix=num($("m_vix").value);S.market.y2=num($("m_2y").value);S.market.y10=num($("m_10y").value);S.market.dxy=num($("m_dxy").value);
+  S.macro.cpi=num($("x_cpi").value);S.macro.cpiPrev=num($("x_cpi_prev").value);S.macro.fedRate=num($("x_fed_rate").value);S.macro.cutProb=num($("x_cutprob").value);S.macro.fg=num($("x_fg").value);S.macro.breadth=num($("x_breadth").value);S.macro.cpiRisk=$("x_cpirisk").value;S.macro.news=$("x_news").value.trim();
+  [...syms(),"CASH"].forEach(a=>{const el=$(`t_${a}`);if(el)S.targets[a]=+el.value||0;});
+  S.events.forEach((e,i)=>{e.date=$(`ev_${i}`).value;e.time=$(`evt_${i}`).value||"13:30";e.impact=$(`evi_${i}`).value;});
+  ["cashDrag","deploy","risk","events","drift","behaviour"].forEach(k=>{const el=$("al_"+k);if(el)S.alertSettings[k]=el.checked;});
+  persist();render();closeModal($("setModal"));toast("Settings saved");};
+
+document.addEventListener("click",e=>{const t=e.target;
+  if(t.id==="copyPacket"){const box=$("packetBox");box.select();try{document.execCommand("copy");}catch(_){}if(navigator.clipboard)navigator.clipboard.writeText(box.value).catch(()=>{});toast("Packet copied");}
+  if(t.id==="expandModels"){const m=$("modelLog");m.classList.toggle("open");t.textContent=m.classList.contains("open")?"Hide details ▴":"Expand details ▾";}
+  if(t.classList&&t.classList.contains("vb")){S.committee.models[t.dataset.model]=(S.committee.models[t.dataset.model]===t.dataset.verdict)?null:t.dataset.verdict;persist();renderCommittee();}
+  if(t.classList&&t.classList.contains("rm-hold")){const s=t.dataset.sym;delete S.holdings[s];if(S.source==="etoro")S.source="manual";persist();buildEditForm();render();}
+  if(t.id==="addHoldingBtn"){const sym=($("e_new_sym").value||"").trim().toUpperCase();if(!sym){toast("Enter a ticker");return;}if(S.holdings[sym]){toast(sym+" already added");return;}
+    S.holdings[sym]={name:meta(sym).name,units:+$("e_new_u").value||0,avgCost:+$("e_new_c").value||0,price:0};if(S.targets[sym]==null)S.targets[sym]=0;if(S.source==="etoro")S.source="manual";persist();buildEditForm();render();toast(sym+" added");}
+  if(t.classList&&t.classList.contains("jedit")){openJournalEdit(t.dataset.id);}
+  if(t.classList&&t.classList.contains("al-dismiss")){const k=t.dataset.key;(S.alerts[k]=S.alerts[k]||{}).dismissed=true;persist();render();}
+  if(t.classList&&t.classList.contains("al-snooze")){const k=t.dataset.key;(S.alerts[k]=S.alerts[k]||{}).snoozeUntil=nextMidnight();persist();render();toast("Snoozed until tomorrow");}
+});
+$("saveJournal").onclick=()=>{const e=S.journal.find(x=>x.id===journalEditId);if(e){e.actualAction=$("j_action").value.trim();e.notes=$("j_notes").value.trim();e.outcome=$("j_outcome").value.trim();if(e.outcome&&!e.outcomeTs)e.outcomeTs=Date.now();persist();syncHistory("journal",e);renderJournal();}closeModal($("journalModal"));toast("Decision logged");};
+
+/* ───────── boot ───────── */
+$("refreshBtn").onclick=refreshLive;$("deepBtn").onclick=runDeepTriggers;
+$("sysCheckBtn").onclick=runSystemCheck;
+// Manual-refresh only: live data fetches (prices, market, eToro, news) run ONLY when you tap
+// REFRESH LIVE DATA. No background polling — this conserves the free API quotas and stops the
+// behaviour counter inflating on its own. (The 1s countdown ticker below is local-only, no network.)
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")render();});
+render();
+</script>
+</body>
+</html>
