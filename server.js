@@ -96,7 +96,7 @@ app.get('/api/health', (req, res) => {
       etoro: ETORO_ON, finnhub: !!FINNHUB, fred: !!FRED, supabase: !!(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY),
       openai: !!process.env.OPENAI_API_KEY, anthropic: !!process.env.ANTHROPIC_API_KEY,
       gemini: !!process.env.GEMINI_API_KEY, perplexity: !!process.env.PERPLEXITY_API_KEY,
-      openrouter: !!process.env.OPENROUTER_API_KEY, grok: GROK_ON
+      openrouter: !!process.env.OPENROUTER_API_KEY, groq: !!process.env.GROQ_API_KEY, grok: GROK_ON
     },
     committeeSeats: loadSeats().filter(s => providerHasKey(s.provider)).length,
     geoOfficer: (process.env.GEMINI_API_KEY) ? { on: true, model: process.env.GEO_MODEL || process.env.GEMINI_MODEL || 'gemini-2.5-flash', by: 'gemini' } : { on: false },
@@ -483,7 +483,9 @@ async function callAnthropic(user, system, modelOverride) {
 }
 // Multi-turn chat over Claude — sends the full conversation (not a single user turn) so the
 // assistant remembers the thread. Used by /api/ask. Defaults to Sonnet 4.6 (best speed/quality balance).
-const CHAT_MODEL = process.env.CHAT_MODEL || process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
+// Chat (/api/ask) provider — defaults to Gemini so chat is free. Set CHAT_PROVIDER=anthropic to use Claude instead.
+const CHAT_PROVIDER = (process.env.CHAT_PROVIDER || 'gemini').toLowerCase();
+const CHAT_MODEL = process.env.CHAT_MODEL || (CHAT_PROVIDER === 'anthropic' ? (process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6') : (process.env.GEMINI_MODEL || 'gemini-2.5-flash'));
 async function callAnthropicChat(messages, system, model) {
   const key = process.env.ANTHROPIC_API_KEY; if (!key) return null;
   const j = await getJson('https://api.anthropic.com/v1/messages', {
@@ -531,10 +533,32 @@ async function callGrok(user, system, modelOverride) {
   }, 45000);
   return j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
 }
+// Groq — free, no-credit-card inference (fast LPU hardware), OpenAI-compatible. Its own quota pool,
+// separate from OpenRouter, so it keeps the committee independent when OpenRouter's free tier is spent.
+// NOTE: this is GROQ (api.groq.com), not xAI's Grok above — different company, different key.
+async function callGroq(user, system, modelOverride) {
+  const key = process.env.GROQ_API_KEY; if (!key) return null;
+  const j = await getJson('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+    body: JSON.stringify({ model: modelOverride || process.env.GROQ_MODEL || 'llama-3.3-70b-versatile', temperature: 0.4, messages: [{ role: 'system', content: system }, { role: 'user', content: user }] })
+  }, 45000);
+  return j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
+}
+// Multi-turn chat over Gemini (free tier) — used by /api/ask so chat costs nothing.
+async function callGeminiChat(messages, system, model) {
+  const key = process.env.GEMINI_API_KEY; if (!key) return null;
+  const mdl = model || process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+  const contents = (messages || []).map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
+  const j = await getJson(`https://generativelanguage.googleapis.com/v1beta/models/${mdl}:generateContent?key=${key}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents })
+  }, 45000);
+  return j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts && j.candidates[0].content.parts.map(p => p.text).filter(Boolean).join('\n');
+}
 // Provider router — one entry per provider. OpenRouter alone covers many model families.
-const PROVIDERS = { openai: callOpenAI, anthropic: callAnthropic, gemini: callGemini, perplexity: callPerplexity, openrouter: callOpenRouter, xai: callGrok };
+const PROVIDERS = { openai: callOpenAI, anthropic: callAnthropic, gemini: callGemini, perplexity: callPerplexity, openrouter: callOpenRouter, groq: callGroq, xai: callGrok };
 function providerHasKey(p) {
-  return { openai: !!process.env.OPENAI_API_KEY, anthropic: !!process.env.ANTHROPIC_API_KEY, gemini: !!process.env.GEMINI_API_KEY, perplexity: !!process.env.PERPLEXITY_API_KEY, openrouter: !!process.env.OPENROUTER_API_KEY, xai: !!(process.env.GROK_API_KEY || process.env.XAI_API_KEY) }[p];
+  return { openai: !!process.env.OPENAI_API_KEY, anthropic: !!process.env.ANTHROPIC_API_KEY, gemini: !!process.env.GEMINI_API_KEY, perplexity: !!process.env.PERPLEXITY_API_KEY, openrouter: !!process.env.OPENROUTER_API_KEY, groq: !!process.env.GROQ_API_KEY, xai: !!(process.env.GROK_API_KEY || process.env.XAI_API_KEY) }[p];
 }
 async function callProvider(provider, model, user, system) {
   const fn = PROVIDERS[provider]; if (!fn) return null;
@@ -588,7 +612,7 @@ function shortReason(r) {
 const DEFAULT_SEATS = [
   { seat: 'Portfolio Manager', role: 'pm',    provider: 'gemini',     model: 'gemini-2.5-flash',                         fallbackProvider: 'openrouter', fallbackModel: 'meta-llama/llama-3.3-70b-instruct:free' },
   { seat: 'Risk Manager',      role: 'risk',  provider: 'openrouter', model: 'meta-llama/llama-3.3-70b-instruct:free',  fallbackProvider: 'gemini',     fallbackModel: 'gemini-2.5-flash' },
-  { seat: 'Macro Analyst',     role: 'macro', provider: 'anthropic',  model: 'claude-haiku-4-5',                        fallbackProvider: 'gemini',     fallbackModel: 'gemini-2.5-flash' },
+  { seat: 'Macro Analyst',     role: 'macro', provider: 'groq',       model: 'llama-3.3-70b-versatile',                 fallbackProvider: 'gemini',     fallbackModel: 'gemini-2.5-flash' },
   { seat: 'Devil\u2019s Advocate', role: 'devil', provider: 'openrouter', model: 'deepseek/deepseek-chat-v3.1:free',    fallbackProvider: 'gemini',     fallbackModel: 'gemini-2.5-flash' }
 ];
 function loadSeats() {
@@ -846,7 +870,9 @@ const CHAT_SYS = 'You are the assistant built into Andrew\u2019s personal Invest
   'You are not a licensed financial adviser; frame conclusions as his decision to make.';
 app.post('/api/ask', async (req, res) => {
   try {
-    if (!process.env.ANTHROPIC_API_KEY) return res.status(400).json({ error: 'Chat is off \u2014 add ANTHROPIC_API_KEY to the backend environment to enable it.' });
+    const useAnthropic = CHAT_PROVIDER === 'anthropic';
+    const haveKey = useAnthropic ? !!process.env.ANTHROPIC_API_KEY : !!process.env.GEMINI_API_KEY;
+    if (!haveKey) return res.status(400).json({ error: 'Chat is off \u2014 the chat provider (' + CHAT_PROVIDER + ') has no API key set on the backend.' });
     const body = req.body || {};
     let msgs = (Array.isArray(body.messages) ? body.messages : [])
       .filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim())
@@ -855,8 +881,8 @@ app.post('/api/ask', async (req, res) => {
     if (!msgs.length || msgs[msgs.length - 1].role !== 'user') return res.status(400).json({ error: 'Need a question to answer.' });
     const context = typeof body.context === 'string' ? body.context.slice(0, 10000) : '';
     const system = CHAT_SYS + (context ? '\n\n=== LIVE SNAPSHOT (his command centre, right now) ===\n' + context : '\n\n(No live snapshot was provided this turn.)');
-    const reply = await callAnthropicChat(msgs, system, CHAT_MODEL);
-    if (!reply) return res.status(502).json({ error: 'Claude returned an empty response \u2014 try again.' });
+    const reply = useAnthropic ? await callAnthropicChat(msgs, system, CHAT_MODEL) : await callGeminiChat(msgs, system, CHAT_MODEL);
+    if (!reply) return res.status(502).json({ error: 'The assistant returned an empty response \u2014 try again.' });
     res.json({ reply, model: CHAT_MODEL });
   } catch (e) {
     res.status(502).json({ error: String((e && e.message) || e).slice(0, 200) });

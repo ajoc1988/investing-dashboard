@@ -353,7 +353,7 @@
 <nav class="navmenu" id="navmenu">
   <button id="navDash">Dashboard</button>
   <button id="navMarkets">Markets &amp; data</button>
-  <button id="navChat">Chat with Claude</button>
+  <button id="navChat">Chat with AI</button>
   <div class="navsep"></div>
   <button id="navEdit">✎ Edit portfolio</button>
   <button id="navSettings">⚙ Settings &amp; market data</button>
@@ -1663,7 +1663,7 @@ $("sysCheckTop").onclick=async()=>{const b=$("sysCheckTop"),t=b.textContent,st=$
 // behaviour counter inflating on its own. (The 1s countdown ticker below is local-only, no network.)
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")render();});
 
-/* ───────── burger menu + Chat with Claude ───────── */
+/* ───────── burger menu + Chat with AI ───────── */
 S.chat=Array.isArray(S.chat)?S.chat:[];
 function chatBase(){return S.backendUrl?S.backendUrl.replace(/\/+$/,""):null;}
 function renderChat(){const log=$("chatLog");if(!log)return;
@@ -1699,7 +1699,7 @@ $("chatInput").addEventListener("input",function(){this.style.height="auto";this
 render();
 </script><div class="chat-overlay" id="chatOverlay">
   <div class="chat-head">
-    <div><div class="chat-title">Chat with Claude</div><div class="chat-sub">Sees your live snapshot · advice only, you approve every trade</div></div>
+    <div><div class="chat-title">Chat with AI</div><div class="chat-sub">Sees your live snapshot · advice only, you approve every trade</div></div>
     <button class="x" id="chatClose" aria-label="Close chat">×</button>
   </div>
   <div class="chat-log" id="chatLog"></div>
