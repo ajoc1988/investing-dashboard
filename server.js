@@ -494,14 +494,17 @@ async function callAnthropicChat(messages, system, model) {
   }, 45000);
   return j.content && j.content.filter(b => b && b.type === 'text').map(b => b.text).join('\n');
 }
-async function callGemini(user, system, modelOverride) {
+async function callGemini(user, system, modelOverride, grounded) {
   const key = process.env.GEMINI_API_KEY; if (!key) return null;
   const model = modelOverride || process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+  const body = { contents: [{ parts: [{ text: system + '\n\n' + user }] }] };
+  if (grounded) body.tools = [{ google_search: {} }];   // live Google Search grounding — real-time web/news, free up to 5k prompts/mo on 3.x
   const j = await getJson(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contents: [{ parts: [{ text: system + '\n\n' + user }] }] })
+    body: JSON.stringify(body)
   }, 40000);
-  return j.candidates && j.candidates[0] && j.candidates[0].content.parts[0].text;
+  const c = j.candidates && j.candidates[0] && j.candidates[0].content;
+  return c && c.parts && c.parts.map(p => p && p.text).filter(Boolean).join('\n');   // join all parts (grounded replies can be multi-part)
 }
 async function callOpenRouter(user, system, modelOverride) {
   const key = process.env.OPENROUTER_API_KEY; if (!key) return null;
@@ -659,8 +662,8 @@ const GEO_ASK = '\n\nYou are NOT a market analyst and you do NOT give buy/sell/h
 // Dedicated Geopolitical Risk Officer brief. Same underlying model as a committee seat can use, but a
 // DELIBERATELY different role and weighting — perspective diversity, not model diversity. It assumes the
 // consensus is complacent and over-weights low-probability/high-impact tail risk.
-const GEO_MODEL = process.env.GEO_MODEL || process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-const GEO_SYS = 'You are the GEOPOLITICAL RISK OFFICER on an investment committee \u2014 a distinct seat, deliberately NOT a portfolio manager and NOT a markets analyst. Your lens is geopolitics, macro-strategy and tail risk. You think like a sovereign-risk desk: assume the market consensus is complacent and your job is to surface what it is ignoring. You weight low-probability, high-impact events (wars, blockades, sanctions, energy shocks, central-bank surprises, election/regime shocks, major-power escalation) more heavily than a markets analyst would. You never see the portfolio and you never give buy/sell/hold advice.' + GEO_ASK;
+const GEO_MODEL = process.env.GEO_MODEL || 'gemini-3.5-flash';   // 3.x family gets 5,000 free grounded prompts/month; independent of GEMINI_MODEL
+const GEO_SYS = 'You are the GEOPOLITICAL RISK OFFICER on an investment committee \u2014 a distinct seat, deliberately NOT a portfolio manager and NOT a markets analyst. Your lens is geopolitics, macro-strategy and tail risk. You think like a sovereign-risk desk: assume the market consensus is complacent and your job is to surface what it is ignoring. You weight low-probability, high-impact events (wars, blockades, sanctions, energy shocks, central-bank surprises, election/regime shocks, major-power escalation) more heavily than a markets analyst would. You have LIVE Google Search access \u2014 base your read on the most recent real headlines from the last few days, not on prior knowledge, and prefer concrete dated developments over generic risks. You never see the portfolio and you never give buy/sell/hold advice.' + GEO_ASK;
 // Gemini can throw a transient "HTTP 503 ... high demand" when overloaded. The Geo Officer retries
 // these capacity/rate errors with exponential backoff before giving up. Resilience only — this path
 // NEVER touches the committee verdict. Permanent errors (4xx) and timeouts are NOT retried, so the
@@ -682,7 +685,7 @@ async function runGeoOfficer(geoPacket, verdict, ROLES) {
   for (let i = 0; i < delays.length; i++) {
     if (delays[i]) await sleep(delays[i]);
     try {
-      raw = await callGemini(geoUser, GEO_SYS, GEO_MODEL);
+      raw = await callGemini(geoUser, GEO_SYS, GEO_MODEL, true);   // grounded = live Google Search
       break;
     } catch (e) {
       const msg = String((e && e.message) || e);
