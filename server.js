@@ -296,7 +296,7 @@ async function mapEtoroPnl(raw) {
   positions.forEach(p => {
     const id = p.instrumentId ?? p.instrumentID;
     if (id == null) return;
-    if (p.mirrorId != null || p.mirrorID != null) return;   // copy/mirror positions are counted under their mirror below, not here
+    if (p.mirrorId || p.mirrorID) return;   // skip ONLY genuine copy/mirror positions (mirrorId 1,2,…); direct positions carry mirrorId 0/absent and must stay
     const cost = n2(p.initialAmountInDollars ?? p.amount ?? p.unitsBaseValueDollars) || 0;
     // eToro returns unrealizedPnL as a nested object { pnL, exposureInAccountCurrency, ... }; tolerate a plain number too.
     const u = p.unrealizedPnL;
