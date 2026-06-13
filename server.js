@@ -477,7 +477,7 @@ async function callAnthropic(user, system, modelOverride) {
   const key = process.env.ANTHROPIC_API_KEY; if (!key) return null;
   const j = await getJson('https://api.anthropic.com/v1/messages', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({ model: modelOverride || process.env.ANTHROPIC_MODEL || 'claude-3-5-haiku-latest', max_tokens: 900, system, messages: [{ role: 'user', content: user }] })
+    body: JSON.stringify({ model: modelOverride || process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5', max_tokens: 900, system, messages: [{ role: 'user', content: user }] })
   }, 40000);
   return j.content && j.content[0] && j.content[0].text;
 }
@@ -588,7 +588,7 @@ function shortReason(r) {
 const DEFAULT_SEATS = [
   { seat: 'Portfolio Manager', role: 'pm',    provider: 'gemini',     model: 'gemini-2.5-flash',                         fallbackProvider: 'openrouter', fallbackModel: 'meta-llama/llama-3.3-70b-instruct:free' },
   { seat: 'Risk Manager',      role: 'risk',  provider: 'openrouter', model: 'meta-llama/llama-3.3-70b-instruct:free',  fallbackProvider: 'gemini',     fallbackModel: 'gemini-2.5-flash' },
-  { seat: 'Macro Analyst',     role: 'macro', provider: 'openrouter', model: 'qwen/qwen3-235b-a22b:free',               fallbackProvider: 'gemini',     fallbackModel: 'gemini-2.5-flash' },
+  { seat: 'Macro Analyst',     role: 'macro', provider: 'anthropic',  model: 'claude-haiku-4-5',                        fallbackProvider: 'gemini',     fallbackModel: 'gemini-2.5-flash' },
   { seat: 'Devil\u2019s Advocate', role: 'devil', provider: 'openrouter', model: 'deepseek/deepseek-chat-v3.1:free',    fallbackProvider: 'gemini',     fallbackModel: 'gemini-2.5-flash' }
 ];
 function loadSeats() {
