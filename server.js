@@ -296,6 +296,7 @@ async function mapEtoroPnl(raw) {
   positions.forEach(p => {
     const id = p.instrumentId ?? p.instrumentID;
     if (id == null) return;
+    if (p.mirrorId != null || p.mirrorID != null) return;   // copy/mirror positions are counted under their mirror below, not here
     const cost = n2(p.initialAmountInDollars ?? p.amount ?? p.unitsBaseValueDollars) || 0;
     // eToro returns unrealizedPnL as a nested object { pnL, exposureInAccountCurrency, ... }; tolerate a plain number too.
     const u = p.unrealizedPnL;
@@ -320,6 +321,25 @@ async function mapEtoroPnl(raw) {
       valueUsd, plUsd: +(a.pl).toFixed(2)
     };
   }).filter(h => h.valueUsd > 0);
+  // Copy trades (copied investors) live in clientPortfolio.mirrors[], separate from direct positions.
+  // Each copy is shown as one line at its net value = uninvested copy cash + value of its held positions.
+  // units:1 / currentPrice:value so the front-end's units×price math reproduces the copy's value.
+  const mirrors = Array.isArray(cp.mirrors) ? cp.mirrors : [];
+  const mirrorHoldings = mirrors.map(m => {
+    const mp = Array.isArray(m.positions) ? m.positions : [];
+    let posVal = 0, posPl = 0;
+    mp.forEach(p => {
+      const u = p.unrealizedPnL; const uObj = (u && typeof u === 'object') ? u : null;
+      const pnl = n2(uObj ? (uObj.pnL ?? uObj.pnlAssetCurrency) : (u ?? p.pnL ?? p.pnl ?? p.netProfit)) || 0;
+      const exposure = uObj ? n2(uObj.exposureInAccountCurrency ?? uObj.exposureInAssetCurrency) : null;
+      const cost = n2(p.initialAmountInDollars ?? p.amount ?? p.unitsBaseValueDollars) || 0;
+      posVal += (exposure != null ? exposure : (cost + pnl)); posPl += pnl;
+    });
+    const value = +(((n2(m.availableAmount) || 0)) + posVal).toFixed(2);
+    const idTag = (m.mirrorId ?? m.parentCid ?? m.cid ?? '');
+    return { symbol: 'COPY' + idTag, name: 'Copy trade' + (idTag !== '' ? ' #' + idTag : ''), units: 1, currentPrice: value, valueUsd: value, plUsd: +posPl.toFixed(2), isCopy: true };
+  }).filter(h => h.valueUsd > 0);
+  const allHoldings = holdings.concat(mirrorHoldings);
   const cash = n2(cp.credit) || 0;   // 'credit' = funds available for new actions (buying power); bonusCredit excluded
   const cpPnl = cp.unrealizedPnL;
   const totalPl = (cpPnl && typeof cpPnl === 'object') ? n2(cpPnl.pnL ?? cpPnl.pnlAssetCurrency) : n2(cpPnl);
@@ -327,7 +347,7 @@ async function mapEtoroPnl(raw) {
   // (it implied a ~1.8% drop when eToro showed the account flat at -0.08%), so estimateTodayPl gives
   // an untrustworthy figure. Rather than show a wrong number we leave Today P/L blank until it can be
   // sourced from eToro's own daily change. estimateTodayPl is kept below for when we revisit it.
-  const out = normalisePortfolio({ holdings, availableCashUsd: cash, totalPlUsd: totalPl, todayPlUsd: null });
+  const out = normalisePortfolio({ holdings: allHoldings, availableCashUsd: cash, totalPlUsd: totalPl, todayPlUsd: null });
   out.todayPlEstimated = false; out.todayPlPartial = false; out.todayPlNote = 'pending accurate source (eToro daily change)';
   return out;
 }
