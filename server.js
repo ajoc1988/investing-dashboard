@@ -461,6 +461,17 @@ async function callAnthropic(user, system, modelOverride) {
   }, 40000);
   return j.content && j.content[0] && j.content[0].text;
 }
+// Multi-turn chat over Claude — sends the full conversation (not a single user turn) so the
+// assistant remembers the thread. Used by /api/ask. Defaults to Sonnet 4.6 (best speed/quality balance).
+const CHAT_MODEL = process.env.CHAT_MODEL || process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
+async function callAnthropicChat(messages, system, model) {
+  const key = process.env.ANTHROPIC_API_KEY; if (!key) return null;
+  const j = await getJson('https://api.anthropic.com/v1/messages', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({ model: model || CHAT_MODEL, max_tokens: 1200, system, messages })
+  }, 45000);
+  return j.content && j.content.filter(b => b && b.type === 'text').map(b => b.text).join('\n');
+}
 async function callGemini(user, system, modelOverride) {
   const key = process.env.GEMINI_API_KEY; if (!key) return null;
   const model = modelOverride || process.env.GEMINI_MODEL || 'gemini-2.5-flash';
@@ -803,7 +814,34 @@ app.post('/api/deep-triggers', async (req, res) => {
   }
 });
 
-/* ───────── Prompt management (admin) ───────── */
+/* ───────── /api/ask — conversational assistant over the user's live data ─────────
+ * Multi-turn chat backed by Claude. The frontend sends the running message history plus a
+ * fresh snapshot of the dashboard each turn, so answers reflect what's on screen right now.
+ * Read-only and advisory: it never trades, and the user approves every action himself. */
+const CHAT_SYS = 'You are the assistant built into Andrew\u2019s personal Investing Command Centre. ' +
+  'You help him think through his own portfolio and general finance questions \u2014 comparisons, trade-offs, education, sanity-checks. ' +
+  'Treat the LIVE SNAPSHOT below as the ground truth for his current holdings, cash, targets, scores and latest committee verdict. ' +
+  'Be concise and direct. Give analysis and options; never instruct him to execute \u2014 he approves every trade himself on eToro and you cannot trade. ' +
+  'Do not invent prices or figures not in the snapshot or general knowledge; if something isn\u2019t there, say so plainly. ' +
+  'You are not a licensed financial adviser; frame conclusions as his decision to make.';
+app.post('/api/ask', async (req, res) => {
+  try {
+    if (!process.env.ANTHROPIC_API_KEY) return res.status(400).json({ error: 'Chat is off \u2014 add ANTHROPIC_API_KEY to the backend environment to enable it.' });
+    const body = req.body || {};
+    let msgs = (Array.isArray(body.messages) ? body.messages : [])
+      .filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim())
+      .map(m => ({ role: m.role, content: m.content.slice(0, 4000) }))
+      .slice(-20);
+    if (!msgs.length || msgs[msgs.length - 1].role !== 'user') return res.status(400).json({ error: 'Need a question to answer.' });
+    const context = typeof body.context === 'string' ? body.context.slice(0, 10000) : '';
+    const system = CHAT_SYS + (context ? '\n\n=== LIVE SNAPSHOT (his command centre, right now) ===\n' + context : '\n\n(No live snapshot was provided this turn.)');
+    const reply = await callAnthropicChat(msgs, system, CHAT_MODEL);
+    if (!reply) return res.status(502).json({ error: 'Claude returned an empty response \u2014 try again.' });
+    res.json({ reply, model: CHAT_MODEL });
+  } catch (e) {
+    res.status(502).json({ error: String((e && e.message) || e).slice(0, 200) });
+  }
+});
 const PROMPT_FILES = ['system-investing.md', 'deep-triggers.md', 'ai-roles.json'];
 app.get('/api/prompts', (req, res) => {
   const out = {};
