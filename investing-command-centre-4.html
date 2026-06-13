@@ -642,6 +642,7 @@ const TYPE={
 };
 function meta(sym){const m=META[sym]||{};const t=m.type||"other";return {name:m.name||sym,type:t,...TYPE[t]};}
 function isStock(sym){const t=meta(sym).type;return t==="stock"||t==="stockHi";}
+function isCopyHold(sym){return /^COPY/.test(sym||"");}   // eToro copy-trade lines (symbol COPY<id>) — real holdings, but not "add today" candidates
 function syms(){return Object.keys(S.holdings);}
 function colorFor(sym){const i=syms().indexOf(sym);return NEON[(i<0?0:i)%NEON.length];}
 
@@ -859,7 +860,7 @@ function compute(){
 
   // per-asset opportunity 0-100
   const oppScores={};
-  list.forEach(a=>{const r=rows[a],mt=meta(a);let s=55+mt.stability;
+  list.forEach(a=>{if(isCopyHold(a))return;const r=rows[a],mt=meta(a);let s=55+mt.stability;
     s+=clamp(Math.max(0,r.tgtPc-r.nowPc)*1.2,0,18);
     s-=clamp(Math.max(0,r.nowPc-r.tgtPc)*1.2,0,18);
     if(r.dp!=null&&r.dp<0)s+=Math.min(10,-r.dp*1.5);
@@ -1097,10 +1098,11 @@ function renderDanger(c){
 }
 
 function renderOpp(c){
-  $("oppGrid").innerHTML=c.list.map(a=>{const s=c.oppScores[a],col=s>=70?C.act:s>=50?C.watch:C.risk;const tag=s>=75?"Strong add":s>=60?"Decent add":s>=45?"Neutral":"Low priority";
+  const scored=c.list.filter(a=>c.oppScores[a]!=null);   // copy trades have no score — keep them out of "add today"
+  $("oppGrid").innerHTML=scored.map(a=>{const s=c.oppScores[a],col=s>=70?C.act:s>=50?C.watch:C.risk;const tag=s>=75?"Strong add":s>=60?"Decent add":s>=45?"Neutral":"Low priority";
     return `<div class="opp"><div class="top"><span class="nm">${a}</span><span class="sc" style="color:${col}">${s}</span></div><div class="track"><i style="width:${s}%;background:${col}"></i></div><div class="tag">${esc(meta(a).name)} · ${tag}</div></div>`;}).join("")||'<div style="font-size:12px;color:var(--muted)">No holdings yet.</div>';
-  if(!c.list.length){$("oppMeans").textContent="Add holdings to score them.";return;}
-  const best=c.list.slice().sort((a,b)=>c.oppScores[b]-c.oppScores[a])[0],worst=c.list.slice().sort((a,b)=>c.oppScores[a]-c.oppScores[b])[0];
+  if(!scored.length){$("oppMeans").textContent="Add holdings to score them.";return;}
+  const best=scored.slice().sort((a,b)=>c.oppScores[b]-c.oppScores[a])[0],worst=scored.slice().sort((a,b)=>c.oppScores[a]-c.oppScores[b])[0];
   $("oppMeans").textContent=`Most attractive to add today: ${best} (${c.oppScores[best]}). Least: ${worst} (${c.oppScores[worst]}). Scores reward being below target and buying into fear, and penalise concentration — especially single stocks.`;
 }
 
@@ -1478,7 +1480,7 @@ function buildPacket(c){
   L.push("INVESTOR: Andrew Collins, Bahrain. Long-term ETF/stock investor on eToro. Wants blunt, decision-led answers. RULES: no auto-trading, leverage, margin, options, shorting, crypto. Reserve kept aside: "+usd(+S.reserve||0)+". Portfolio source: "+(S.source==="etoro"?"eToro read-only sync":"manual")+".");
   L.push("");
   L.push("PORTFOLIO "+usd(c.pot)+" | cash "+usd(c.cash)+" ("+c.cashPc.toFixed(1)+"%) | dry powder "+usd(c.deployable)+" | total P/L "+usd(c.totPl));
-  c.list.forEach(a=>{const r=c.rows[a];L.push(`  ${a} (${meta(a).label}): ${usd(r.val)} (${r.nowPc.toFixed(1)}%, target ${r.tgtPc}%, opp ${c.oppScores[a]})`);});
+  c.list.forEach(a=>{const r=c.rows[a];L.push(`  ${a} (${meta(a).label}): ${usd(r.val)} (${r.nowPc.toFixed(1)}%, target ${r.tgtPc}%, opp ${c.oppScores[a]!=null?c.oppScores[a]:"n/a — copy trade"})`);});
   L.push("  CASH: "+c.cashPc.toFixed(1)+"% (target "+c.cashTgt+"%) — drag "+c.cashDrag);
   if(c.topStock)L.push("  CONCENTRATION: largest single stock "+c.topStock+" at "+c.concPc.toFixed(1)+"%");
   L.push("");
