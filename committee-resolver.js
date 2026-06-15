@@ -1,135 +1,105 @@
 'use strict';
 /**
- * committee-resolver.js  —  Build step 1 of the verdict-logic rework.
+ * committee-resolver.js — post-synthesis resolution layer.
  *
- * Scope (deliberately narrow):
- *   1. Defines the cashContext the committee must receive.
- *   2. Resolves seat votes -> confidence band + display colour (5-step).
- *   3. Resolves seat votes + cash bucket -> a committee ACTION,
- *      with action DECOUPLED from displayed confidence.
+ * IMPORTANT: this does NOT replace a chair tie-break — server.js has none.
+ * The chair is the synthesiser LLM (server.js ~line 827, synth.finalVerdict).
+ * This runs AFTER `out` is built and converts (verdict, consensus, cashContext)
+ * into an honest display colour + a bucket-aware action. It never changes how
+ * the verdict itself is decided.
  *
- * Out of scope (later steps): the Deep-Trigger / tactical verdict,
- * the two-verdict display, and any UI. The tactical overlay combines
- * with the `action` returned here at the DISPLAY layer, not here.
+ * Verdict ladder — MUST match STANCE in server.js:
+ *   BUY AGGRESSIVELY 6 | DEPLOY ON PLAN 5 | BUY GRADUALLY 4   <- buy-type
+ *   WATCH 3 | HOLD 2 | WAIT 1 | REDUCE RISK 0                  <- defensive
  *
- * Locked spec
- *   Confidence (by % agreement among RESPONDING seats):
- *     4-0 -> green       | 3-1 -> amber-green (lean) | 2-2 -> amber (no consensus)
- *     1-3 -> amber-red   | 0-4 -> red
- *   Bucket tie (2-2) rules:
- *     plan          -> PROCEED on plan, but confidence shows amber
- *     discretionary -> WAIT
- *     drypowder     -> WAIT
- *     ring-fenced   -> never passed in (throws if it is)
- *
- * CommonJS module. Convert to import/export if the backend is ESM.
+ * consensus = % of RESPONDING seats on the modal verdict (server.js line 805).
  */
 
+const STANCE = {
+  'BUY AGGRESSIVELY': 6, 'DEPLOY ON PLAN': 5, 'BUY GRADUALLY': 4,
+  'WATCH': 3, 'HOLD': 2, 'WAIT': 1, 'REDUCE RISK': 0
+};
+const BUY_FLOOR = 4;               // STANCE >= 4 => the chair wants cash deployed
 const DEPLOYABLE_BUCKETS = Object.freeze(['plan', 'discretionary', 'drypowder']);
 
-/**
- * @typedef {Object} CashContext
- * @property {'plan'|'discretionary'|'drypowder'} bucket
- * @property {number} amount         amount under consideration
- * @property {number} [monthlyLimit] optional cap for plan deployments
- */
+// THE knob: at/above this agreement %, non-plan cash may deploy. Below it, only
+// `plan` money proceeds (everything else waits). Set to 100 to require unanimity
+// before discretionary / dry-powder cash is ever deployed on a split committee.
+const ACTIONABLE_MAJORITY = 75;
 
-/**
- * @typedef {Object} Votes
- * @property {number} deploy seats voting DEPLOY ON PLAN
- * @property {number} wait   seats voting WAIT
- */
+function isBuy(verdict) { return (STANCE[verdict] ?? -1) >= BUY_FLOOR; }
 
-/** Votes -> confidence band + display colour. Independent of cash bucket. */
-function confidence(votes) {
-  const total = votes.deploy + votes.wait;
-  if (total === 0) {
-    return { agreementPct: null, band: 'none', colour: 'grey', lean: 'none' };
-  }
-  const majority = Math.max(votes.deploy, votes.wait);
-  const agreementPct = Math.round((majority / total) * 100);
-  const lean = votes.deploy === votes.wait ? 'split'
-             : votes.deploy > votes.wait ? 'deploy' : 'wait';
-
+/** consensus % + verdict direction -> band + display colour (no bucket needed). */
+function confidence(verdict, consensus) {
+  const buy = isBuy(verdict);
   let band, colour;
-  if (agreementPct >= 100) {
-    band = 'strong';
-    colour = lean === 'deploy' ? 'green' : 'red';
-  } else if (agreementPct >= 75) {
-    band = 'lean';
-    colour = lean === 'deploy' ? 'amber-green' : 'amber-red';
-  } else {
-    band = 'no-consensus';            // 2-2, or any sub-75% spread (e.g. a seat didn't run)
-    colour = 'amber';
-  }
-  return { agreementPct, band, colour, lean };
+  if (consensus >= 100)                     { band = 'strong';       colour = buy ? 'green' : 'red'; }
+  else if (consensus >= ACTIONABLE_MAJORITY){ band = 'lean';         colour = buy ? 'amber-green' : 'amber-red'; }
+  else                                      { band = 'no-consensus'; colour = 'amber'; }
+  return { agreementPct: consensus, band, colour, direction: buy ? 'buy' : 'defensive' };
 }
 
 /**
- * Resolve the committee's strategic action.
- * ACTION is intentionally independent of the displayed confidence colour.
- *
- * @param {Votes} votes
- * @param {CashContext} cashContext
- * @returns {{action:'deploy'|'wait', confidence:object, cashContext:CashContext, note:string}}
+ * @param {{verdict:string, consensus:number, cashContext?:{bucket:string,amount?:number,monthlyLimit?:number}}} x
+ * @returns {{action:'deploy'|'wait'|'review', confidence:object, note:string, bucketAware:boolean, needsBucket?:boolean, cashContext?:object}}
  */
-function resolveCommittee(votes, cashContext) {
-  if (!cashContext || !DEPLOYABLE_BUCKETS.includes(cashContext.bucket)) {
+function resolve({ verdict, consensus, cashContext }) {
+  consensus = Number(consensus) || 0;
+  const conf = confidence(verdict, consensus);
+
+  if (!verdict) {
+    return { action: 'wait', confidence: { ...conf, band: 'none', colour: 'grey' }, note: 'no committee verdict', bucketAware: false };
+  }
+
+  // Defensive verdict: chair says don't buy — cash bucket is irrelevant.
+  if (!isBuy(verdict)) {
+    return { action: 'wait', confidence: conf, note: `defensive verdict (${verdict})`, bucketAware: false };
+  }
+
+  // Buy-type verdict but no declared bucket: reflect confidence, don't gate, ask for one.
+  if (!cashContext) {
+    return {
+      action: consensus >= ACTIONABLE_MAJORITY ? 'deploy' : 'review',
+      confidence: conf, note: 'buy verdict; no cash bucket declared',
+      bucketAware: false, needsBucket: true
+    };
+  }
+  if (!DEPLOYABLE_BUCKETS.includes(cashContext.bucket)) {
     // Ring-fenced (emergency/business) cash must never reach the committee.
-    // Enforce by loud failure, not silent handling — omission is the rule.
-    throw new Error(
-      `Invalid or ring-fenced cash bucket: ${cashContext && cashContext.bucket}. ` +
-      `Only ${DEPLOYABLE_BUCKETS.join(', ')} may be passed to the committee.`
-    );
+    throw new Error(`Invalid or ring-fenced cash bucket: ${cashContext.bucket}. Only ${DEPLOYABLE_BUCKETS.join(', ')} may reach the committee.`);
   }
 
-  const conf = confidence(votes);
-  let action, note;
-
-  if (conf.lean === 'deploy') {
-    action = 'deploy';
-    note = conf.band === 'strong' ? 'clear deploy' : 'lean deploy';
-  } else if (conf.lean === 'wait') {
-    action = 'wait';
-    note = conf.band === 'strong' ? 'clear wait' : 'lean wait';
-  } else {
-    // 2-2 split: action depends on the cash bucket; confidence stays amber.
-    if (cashContext.bucket === 'plan') {
-      action = 'deploy';
-      note = 'split committee — proceed on plan (confidence amber)';
-    } else {
-      action = 'wait';
-      note = `split committee — hold ${cashContext.bucket}`;
-    }
+  // Clear majority -> deploy any deployable bucket.
+  if (consensus >= ACTIONABLE_MAJORITY) {
+    return { action: 'deploy', confidence: conf, cashContext, note: `clear majority (${consensus}%) — ${verdict.toLowerCase()}`, bucketAware: true };
   }
 
-  return { action, confidence: conf, cashContext, note };
+  // Split / low agreement -> bucket decides (the agreed rule). Confidence stays amber.
+  if (cashContext.bucket === 'plan') {
+    return { action: 'deploy', confidence: conf, cashContext, note: `low agreement (${consensus}%) — proceed on plan only`, bucketAware: true };
+  }
+  return { action: 'wait', confidence: conf, cashContext, note: `low agreement (${consensus}%) — hold ${cashContext.bucket}`, bucketAware: true };
 }
 
-module.exports = { resolveCommittee, confidence, DEPLOYABLE_BUCKETS };
+module.exports = { resolve, confidence, isBuy, STANCE, DEPLOYABLE_BUCKETS, ACTIONABLE_MAJORITY };
 
 // --- standalone boot-test: `node committee-resolver.js` ---
 if (require.main === module) {
-  const cases = [
-    ['4-0',               { deploy: 4, wait: 0 }, { bucket: 'discretionary', amount: 500 }],
-    ['3-1',               { deploy: 3, wait: 1 }, { bucket: 'discretionary', amount: 500 }],
-    ['1-3',               { deploy: 1, wait: 3 }, { bucket: 'discretionary', amount: 500 }],
-    ['0-4',               { deploy: 0, wait: 4 }, { bucket: 'plan',          amount: 500 }],
-    ['2-2 plan',          { deploy: 2, wait: 2 }, { bucket: 'plan',          amount: 500 }],
-    ['2-2 discretionary', { deploy: 2, wait: 2 }, { bucket: 'discretionary', amount: 500 }],
-    ['2-2 drypowder',     { deploy: 2, wait: 2 }, { bucket: 'drypowder',     amount: 7000 }],
-    ['2-1 (seat missing)',{ deploy: 2, wait: 1 }, { bucket: 'plan',          amount: 500 }],
+  const C = [
+    ['DEPLOY ON PLAN', 50, { bucket: 'discretionary' }],  // the screenshot case
+    ['DEPLOY ON PLAN', 50, { bucket: 'plan' }],
+    ['DEPLOY ON PLAN', 50, { bucket: 'drypowder' }],
+    ['DEPLOY ON PLAN', 75, { bucket: 'discretionary' }],
+    ['BUY AGGRESSIVELY', 100, { bucket: 'drypowder' }],
+    ['WAIT', 100, { bucket: 'plan' }],
+    ['WATCH', 50, { bucket: 'plan' }],
+    ['DEPLOY ON PLAN', 67, null],                          // buy verdict, no bucket declared
+    [null, 0, { bucket: 'plan' }],                         // committee didn't respond
   ];
-  for (const [label, votes, ctx] of cases) {
-    const r = resolveCommittee(votes, ctx);
-    console.log(
-      `${label.padEnd(20)} -> ${r.action.toUpperCase().padEnd(7)} ` +
-      `colour=${r.confidence.colour.padEnd(11)} agree=${String(r.confidence.agreementPct)}%  (${r.note})`
-    );
+  for (const [v, c, ctx] of C) {
+    const r = resolve({ verdict: v, consensus: c, cashContext: ctx });
+    console.log(`${String(v).padEnd(16)} ${String(c).padStart(3)}% ${(ctx?ctx.bucket:'(none)').padEnd(14)} -> ${r.action.toUpperCase().padEnd(7)} ${r.confidence.colour.padEnd(11)} (${r.note})`);
   }
-  try {
-    resolveCommittee({ deploy: 4, wait: 0 }, { bucket: 'emergency', amount: 8000 });
-  } catch (e) {
-    console.log('ring-fence guard     -> THREW as expected: ' + e.message.split('.')[0]);
-  }
+  try { resolve({ verdict: 'DEPLOY ON PLAN', consensus: 100, cashContext: { bucket: 'emergency' } }); }
+  catch (e) { console.log('ring-fence guard:'.padEnd(40) + 'THREW — ' + e.message.split('.')[0]); }
 }
