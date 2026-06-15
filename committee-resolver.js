@@ -1,51 +1,90 @@
 'use strict';
 /**
- * committee-resolver.js — post-synthesis resolution layer.
+ * committee-resolver.js — v3 (participation-aware).
  *
- * IMPORTANT: this does NOT replace a chair tie-break — server.js has none.
- * The chair is the synthesiser LLM (server.js ~line 827, synth.finalVerdict).
- * This runs AFTER `out` is built and converts (verdict, consensus, cashContext)
- * into an honest display colour + a bucket-aware action. It never changes how
- * the verdict itself is decided.
+ * Post-synthesis resolution: turns (verdict, consensus, participation, cashContext)
+ * into an honest display colour + a bucket-aware action. Does NOT decide the verdict.
+ *
+ * v3 fixes the false-green found on 2026-06-15: 1 of 4 seats responding with a
+ * buy verdict was scoring 100% consensus -> green. Confidence is now CAPPED by
+ * participation, so a verdict from a near-empty committee can never read confident.
+ *
+ *   agreement     = how much the RESPONDING seats agree (consensus %)
+ *   participation = how many of the configured seats actually responded
+ *   confidence    = the MORE CAUTIOUS of the two
+ *
+ * Participation ceiling (max band allowed):
+ *   4/4 -> strong (green allowed) | 3/4 -> lean (amber-green max)
+ *   2/4 -> amber max | 1/4 -> amber max + lowConfidence flag | 0/4 -> no decision
+ *
+ * Note on the "1/4 = red" idea: a single seat voting BUY is blindness, not danger,
+ * so 1/4 caps to AMBER (+lowConfidence), never RED — RED would falsely imply the
+ * environment is dangerous when really the committee just didn't show up.
  *
  * Verdict ladder — MUST match STANCE in server.js:
  *   BUY AGGRESSIVELY 6 | DEPLOY ON PLAN 5 | BUY GRADUALLY 4   <- buy-type
  *   WATCH 3 | HOLD 2 | WAIT 1 | REDUCE RISK 0                  <- defensive
- *
- * consensus = % of RESPONDING seats on the modal verdict (server.js line 805).
  */
 
 const STANCE = {
   'BUY AGGRESSIVELY': 6, 'DEPLOY ON PLAN': 5, 'BUY GRADUALLY': 4,
   'WATCH': 3, 'HOLD': 2, 'WAIT': 1, 'REDUCE RISK': 0
 };
-const BUY_FLOOR = 4;               // STANCE >= 4 => the chair wants cash deployed
+const BUY_FLOOR = 4;
 const DEPLOYABLE_BUCKETS = Object.freeze(['plan', 'discretionary', 'drypowder']);
 
-// THE knob: at/above this agreement %, non-plan cash may deploy. Below it, only
-// `plan` money proceeds (everything else waits). Set to 100 to require unanimity
-// before discretionary / dry-powder cash is ever deployed on a split committee.
-const ACTIONABLE_MAJORITY = 75;
+// Ordinal confidence bands (high -> low). 'none' = no decision.
+const BAND_RANK = { strong: 3, lean: 2, 'no-consensus': 1, none: 0 };
+const moreCautious = (a, b) => (BAND_RANK[a] <= BAND_RANK[b] ? a : b);
 
 function isBuy(verdict) { return (STANCE[verdict] ?? -1) >= BUY_FLOOR; }
 
-/** consensus % + verdict direction -> band + display colour (no bucket needed). */
-function confidence(verdict, consensus) {
+function participationCeiling(responded, configured) {
+  if (!configured || configured <= 0 || responded == null) {
+    return { ceiling: 'strong', ratio: null, known: false }; // can't assess -> don't cap (server always passes these)
+  }
+  const ratio = responded / configured;
+  let ceiling;
+  if (ratio >= 1)         ceiling = 'strong';        // 4/4
+  else if (ratio >= 0.75) ceiling = 'lean';          // 3/4
+  else                    ceiling = 'no-consensus';  // 2/4 and 1/4
+  return { ceiling, ratio, known: true };
+}
+
+/** Agreement band capped by participation -> band + display colour. */
+function confidence(verdict, consensus, seatsResponded, seatsConfigured) {
   const buy = isBuy(verdict);
-  let band, colour;
-  if (consensus >= 100)                     { band = 'strong';       colour = buy ? 'green' : 'red'; }
-  else if (consensus >= ACTIONABLE_MAJORITY){ band = 'lean';         colour = buy ? 'amber-green' : 'amber-red'; }
-  else                                      { band = 'no-consensus'; colour = 'amber'; }
-  return { agreementPct: consensus, band, colour, direction: buy ? 'buy' : 'defensive' };
+
+  let agreeBand;
+  if (consensus >= 100)     agreeBand = 'strong';
+  else if (consensus >= 75) agreeBand = 'lean';
+  else                      agreeBand = 'no-consensus';
+
+  const part = participationCeiling(seatsResponded, seatsConfigured);
+  const band = moreCautious(agreeBand, part.ceiling);
+
+  let colour;
+  if (band === 'strong')    colour = buy ? 'green' : 'red';
+  else if (band === 'lean') colour = buy ? 'amber-green' : 'amber-red';
+  else                      colour = 'amber';
+
+  return {
+    agreementPct: consensus,
+    band,
+    colour,
+    direction: buy ? 'buy' : 'defensive',
+    participation: { responded: seatsResponded ?? null, configured: seatsConfigured ?? null, ratio: part.ratio, known: part.known },
+    cappedByParticipation: BAND_RANK[part.ceiling] < BAND_RANK[agreeBand],
+    lowConfidence: part.known && part.ratio < 0.5
+  };
 }
 
 /**
- * @param {{verdict:string, consensus:number, cashContext?:{bucket:string,amount?:number,monthlyLimit?:number}}} x
- * @returns {{action:'deploy'|'wait'|'review', confidence:object, note:string, bucketAware:boolean, needsBucket?:boolean, cashContext?:object}}
+ * @param {{verdict:string, consensus:number, seatsResponded?:number, seatsConfigured?:number, cashContext?:object}} x
  */
-function resolve({ verdict, consensus, cashContext }) {
+function resolve({ verdict, consensus, seatsResponded, seatsConfigured, cashContext }) {
   consensus = Number(consensus) || 0;
-  const conf = confidence(verdict, consensus);
+  const conf = confidence(verdict, consensus, seatsResponded, seatsConfigured);
 
   if (!verdict) {
     return { action: 'wait', confidence: { ...conf, band: 'none', colour: 'grey' }, note: 'no committee verdict', bucketAware: false };
@@ -56,50 +95,52 @@ function resolve({ verdict, consensus, cashContext }) {
     return { action: 'wait', confidence: conf, note: `defensive verdict (${verdict})`, bucketAware: false };
   }
 
-  // Buy-type verdict but no declared bucket: reflect confidence, don't gate, ask for one.
+  const partNote = conf.cappedByParticipation
+    ? ` [confidence capped: ${conf.participation.responded}/${conf.participation.configured} seats]` : '';
+
+  // Buy-type verdict, no bucket declared: reflect confidence, don't gate.
   if (!cashContext) {
     return {
-      action: consensus >= ACTIONABLE_MAJORITY ? 'deploy' : 'review',
-      confidence: conf, note: 'buy verdict; no cash bucket declared',
+      action: (conf.band === 'strong' || conf.band === 'lean') ? 'deploy' : 'review',
+      confidence: conf, note: 'buy verdict; no cash bucket declared' + partNote,
       bucketAware: false, needsBucket: true
     };
   }
   if (!DEPLOYABLE_BUCKETS.includes(cashContext.bucket)) {
-    // Ring-fenced (emergency/business) cash must never reach the committee.
     throw new Error(`Invalid or ring-fenced cash bucket: ${cashContext.bucket}. Only ${DEPLOYABLE_BUCKETS.join(', ')} may reach the committee.`);
   }
 
-  // Clear majority -> deploy any deployable bucket.
-  if (consensus >= ACTIONABLE_MAJORITY) {
-    return { action: 'deploy', confidence: conf, cashContext, note: `clear majority (${consensus}%) — ${verdict.toLowerCase()}`, bucketAware: true };
+  // Action keys off the FINAL (capped) band, never raw consensus.
+  if (conf.band === 'strong' || conf.band === 'lean') {
+    return { action: 'deploy', confidence: conf, cashContext, note: `${conf.band} ${verdict.toLowerCase()}` + partNote, bucketAware: true };
   }
-
-  // Split / low agreement -> bucket decides (the agreed rule). Confidence stays amber.
+  // Capped to no-consensus -> bucket decides. Plan proceeds (DCA default); rest waits.
   if (cashContext.bucket === 'plan') {
-    return { action: 'deploy', confidence: conf, cashContext, note: `low agreement (${consensus}%) — proceed on plan only`, bucketAware: true };
+    return { action: 'deploy', confidence: conf, cashContext, note: `low confidence — proceed on plan default only` + partNote, bucketAware: true };
   }
-  return { action: 'wait', confidence: conf, cashContext, note: `low agreement (${consensus}%) — hold ${cashContext.bucket}`, bucketAware: true };
+  return { action: 'wait', confidence: conf, cashContext, note: `low confidence — hold ${cashContext.bucket}` + partNote, bucketAware: true };
 }
 
-module.exports = { resolve, confidence, isBuy, STANCE, DEPLOYABLE_BUCKETS, ACTIONABLE_MAJORITY };
+module.exports = { resolve, confidence, isBuy, STANCE, DEPLOYABLE_BUCKETS };
 
-// --- standalone boot-test: `node committee-resolver.js` ---
+// --- boot-test: `node committee-resolver.js` ---
 if (require.main === module) {
   const C = [
-    ['DEPLOY ON PLAN', 50, { bucket: 'discretionary' }],  // the screenshot case
-    ['DEPLOY ON PLAN', 50, { bucket: 'plan' }],
-    ['DEPLOY ON PLAN', 50, { bucket: 'drypowder' }],
-    ['DEPLOY ON PLAN', 75, { bucket: 'discretionary' }],
-    ['BUY AGGRESSIVELY', 100, { bucket: 'drypowder' }],
-    ['WAIT', 100, { bucket: 'plan' }],
-    ['WATCH', 50, { bucket: 'plan' }],
-    ['DEPLOY ON PLAN', 67, null],                          // buy verdict, no bucket declared
-    [null, 0, { bucket: 'plan' }],                         // committee didn't respond
+    ['DEPLOY ON PLAN', 100, 1, 4, { bucket: 'plan' }],          // <- the screenshot bug: 1/4 buy
+    ['DEPLOY ON PLAN', 100, 1, 4, { bucket: 'discretionary' }],
+    ['DEPLOY ON PLAN', 100, 4, 4, { bucket: 'discretionary' }], // 4/4 unanimous
+    ['DEPLOY ON PLAN', 100, 3, 4, { bucket: 'discretionary' }], // 3/4 unanimous
+    ['DEPLOY ON PLAN', 100, 2, 4, { bucket: 'plan' }],          // 2/4 unanimous
+    ['DEPLOY ON PLAN',  50, 4, 4, { bucket: 'plan' }],          // 4/4 split, plan
+    ['DEPLOY ON PLAN',  50, 4, 4, { bucket: 'discretionary' }], // 4/4 split, discretionary
+    ['WAIT',           100, 4, 4, { bucket: 'plan' }],          // 4/4 clear wait
+    ['WAIT',           100, 1, 4, { bucket: 'plan' }],          // 1/4 wait
+    [null,               0, 0, 4, { bucket: 'plan' }],          // no decision
   ];
-  for (const [v, c, ctx] of C) {
-    const r = resolve({ verdict: v, consensus: c, cashContext: ctx });
-    console.log(`${String(v).padEnd(16)} ${String(c).padStart(3)}% ${(ctx?ctx.bucket:'(none)').padEnd(14)} -> ${r.action.toUpperCase().padEnd(7)} ${r.confidence.colour.padEnd(11)} (${r.note})`);
+  for (const [v, c, sr, sc, ctx] of C) {
+    const r = resolve({ verdict: v, consensus: c, seatsResponded: sr, seatsConfigured: sc, cashContext: ctx });
+    console.log(`${String(v).padEnd(16)} ${String(c).padStart(3)}% ${sr}/${sc} ${(ctx?ctx.bucket:'-').padEnd(8)} -> ${r.action.toUpperCase().padEnd(7)} ${r.confidence.colour.padEnd(11)} ${r.confidence.lowConfidence?'LOWCONF ':'        '}(${r.note})`);
   }
-  try { resolve({ verdict: 'DEPLOY ON PLAN', consensus: 100, cashContext: { bucket: 'emergency' } }); }
-  catch (e) { console.log('ring-fence guard:'.padEnd(40) + 'THREW — ' + e.message.split('.')[0]); }
+  try { resolve({ verdict: 'DEPLOY ON PLAN', consensus: 100, seatsResponded: 4, seatsConfigured: 4, cashContext: { bucket: 'emergency' } }); }
+  catch (e) { console.log('ring-fence guard -> THREW: ' + e.message.split('.')[0]); }
 }

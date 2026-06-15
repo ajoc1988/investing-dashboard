@@ -843,7 +843,7 @@ app.post('/api/deep-triggers', async (req, res) => {
   };
 
   // Post-synthesis resolution: honest colour + bucket-aware action. Does NOT change the verdict.
-  try { out.resolution = resolveCommitteeAction({ verdict: out.verdict, consensus: out.consensus, cashContext }); }
+  try { out.resolution = resolveCommitteeAction({ verdict: out.verdict, consensus: out.consensus, seatsResponded: out.seatsResponded, seatsConfigured: out.seatsConfigured, cashContext }); }
   catch (e) { out.resolution = { error: String(e.message) }; }
 
   // GEOPOLITICAL RISK OFFICER (Grok) — separate from the voting committee, not in the tally.
