@@ -19,6 +19,7 @@
 try { require('dotenv').config(); } catch (_) { /* dotenv optional: hosted platforms inject env vars directly */ }
 const express = require('express');
 const cors = require('cors');
+const { resolve: resolveCommitteeAction } = require('./committee-resolver');
 
 const app = express();
 app.use(express.json({ limit: '128kb' }));
@@ -707,6 +708,7 @@ async function runGeoOfficer(geoPacket, verdict, ROLES) {
 
 app.post('/api/deep-triggers', async (req, res) => {
   const packet = req.body && req.body.packet;
+  const cashContext = (req.body && req.body.cashContext) || null; // {bucket:'plan'|'discretionary'|'drypowder', amount?, monthlyLimit?}; ring-fenced cash is never sent
   if (!packet || typeof packet !== 'string') return res.status(400).json({ error: 'missing packet' });
 
   const TASK = loadPrompt('deep-triggers.md');
@@ -839,6 +841,10 @@ app.post('/api/deep-triggers', async (req, res) => {
     tally, seatStatus, seatsConfigured, seatsResponded,
     ts: Date.now()
   };
+
+  // Post-synthesis resolution: honest colour + bucket-aware action. Does NOT change the verdict.
+  try { out.resolution = resolveCommitteeAction({ verdict: out.verdict, consensus: out.consensus, cashContext }); }
+  catch (e) { out.resolution = { error: String(e.message) }; }
 
   // GEOPOLITICAL RISK OFFICER (Grok) — separate from the voting committee, not in the tally.
   out.geoRisk = await runGeoOfficer(req.body && req.body.geoPacket, verdict, ROLES);
