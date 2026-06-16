@@ -614,10 +614,10 @@ function shortReason(r) {
 // Fully config-driven: set COMMITTEE_SEATS (a JSON array) in the environment to add/remove
 // models with NO code change. Seats whose provider has no key are skipped automatically.
 const DEFAULT_SEATS = [
-  { seat: 'Portfolio Manager', role: 'pm',    provider: 'gemini',     model: 'gemini-2.5-flash',                         fallbackProvider: 'openrouter', fallbackModel: 'meta-llama/llama-3.3-70b-instruct:free' },
-  { seat: 'Risk Manager',      role: 'risk',  provider: 'openrouter', model: 'meta-llama/llama-3.3-70b-instruct:free',  fallbackProvider: 'gemini',     fallbackModel: 'gemini-2.5-flash' },
-  { seat: 'Macro Analyst',     role: 'macro', provider: 'groq',       model: 'llama-3.3-70b-versatile',                 fallbackProvider: 'gemini',     fallbackModel: 'gemini-2.5-flash' },
-  { seat: 'Devil\u2019s Advocate', role: 'devil', provider: 'openrouter', model: 'deepseek/deepseek-chat-v3.1:free',    fallbackProvider: 'gemini',     fallbackModel: 'gemini-2.5-flash' }
+  { seat: 'Portfolio Manager', role: 'pm',    provider: 'gemini',     model: 'gemini-2.5-flash',                         fallbackProvider: 'groq',       fallbackModel: 'llama-3.3-70b-versatile' },
+  { seat: 'Risk Manager',      role: 'risk',  provider: 'groq',       model: 'llama-3.3-70b-versatile',                 fallbackProvider: 'openrouter', fallbackModel: 'meta-llama/llama-3.3-70b-instruct:free' },
+  { seat: 'Macro Analyst',     role: 'macro', provider: 'openrouter', model: 'meta-llama/llama-3.3-70b-instruct:free',  fallbackProvider: 'groq',       fallbackModel: 'llama-3.3-70b-versatile' },
+  { seat: 'Devil\u2019s Advocate', role: 'devil', provider: 'openrouter', model: 'deepseek/deepseek-chat-v3.1:free',    fallbackProvider: 'groq',       fallbackModel: 'llama-3.3-70b-versatile' }
 ];
 function loadSeats() {
   const env = process.env.COMMITTEE_SEATS;
