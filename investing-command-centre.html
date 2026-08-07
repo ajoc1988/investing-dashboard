@@ -346,6 +346,7 @@
   <div class="conf">
     <span class="pill" id="confPill">DATA —</span>
     <span class="num" id="lastRefresh" style="font-size:10px">never refreshed</span>
+    <span class="num" id="buildChip" style="font-size:10px;font-family:var(--mono);color:var(--muted-2)" title="Frontend / backend build. A mismatch means one of them is a stale deployment.">FE — · API —</span>
   </div>
   <button class="burger" id="burger" aria-label="Open menu">☰</button>
 </header>
@@ -368,7 +369,7 @@
     <div class="g"><div class="k">Total P/L</div><div class="v" id="totPl">—</div></div>
     <div class="g"><div class="k">Cash</div><div class="v" id="cashV">—</div></div>
     <div class="g"><div class="k">Cash %</div><div class="v" id="cashPc">—</div></div>
-    <div class="g"><div class="k">Dry powder</div><div class="v" id="dryV">—</div></div>
+    <div class="g"><div class="k" id="dryK">Deployable</div><div class="v" id="dryV">—</div></div>
   </div>
 </div>
 
@@ -393,6 +394,13 @@
   <button class="btn primary" id="refreshBtn"><span class="ico">↻</span> REFRESH LIVE DATA</button>
   <button class="btn run" id="deepBtn"><span class="ico">▶</span> RUN DEEP TRIGGERS</button>
 </div>
+<div class="cashbucket-row" style="display:flex; gap:9px; align-items:center; margin-top:9px; flex-wrap:wrap">
+  <span style="font-family:var(--mono,monospace); font-size:11px; color:var(--muted); white-space:nowrap">WHICH CASH?</span>
+  <button class="btn sm bkt" data-bucket="plan" style="flex:1">Monthly Plan</button>
+  <button class="btn sm bkt" data-bucket="discretionary" style="flex:1">Broker Cash</button>
+  <!-- Legacy wire identifier "drypowder"; user-facing meaning is Opportunity Reserve. -->
+  <button class="btn sm bkt" data-bucket="drypowder" style="flex:1">Opportunity Reserve</button>
+</div>
 <div class="syscheck-row" style="display:flex; gap:9px; align-items:center; margin-top:9px">
   <button class="btn sm" id="sysCheckTop" style="flex:1">◇ Run system check</button>
   <span id="sysCheckStatus" class="pill" style="display:none; font-size:11px; white-space:nowrap; padding:6px 11px"></span>
@@ -404,12 +412,12 @@
 
 <!-- METERS -->
 <div class="meters">
-  <div class="meter"><div class="k">Health /10</div><div class="gz" id="gHealth"></div><div class="v" id="vHealth">—</div></div>
+  <div class="meter"><div class="k">Concentration</div><div class="gz" id="gHealth"></div><div class="v" id="vHealth">—</div></div>
   <div class="meter"><div class="k">Market Danger</div><div class="gz" id="gDanger"></div><div class="v" id="vDanger">—</div></div>
   <div class="meter"><div class="k">Opportunity</div><div class="gz" id="gOpp"></div><div class="v" id="vOpp">—</div></div>
 </div>
 <div class="chips">
-  <div class="chip"><div class="k">Cash Drag</div><div class="v" id="chCash">—</div></div>
+  <div class="chip"><div class="k">Broker Cash</div><div class="v" id="chCash">—</div></div>
   <div class="chip"><div class="k">Fear &amp; Greed</div><div class="v" id="chFg">—</div></div>
   <div class="chip"><div class="k">Status</div><div class="v" id="chStatus">—</div></div>
 </div>
@@ -475,22 +483,22 @@
 <section class="card">
   <h2><span class="dot" style="background:var(--data)"></span> PORTFOLIO (eToro)</h2>
   <div class="card-note" id="pfNote">Manual holdings. Connect a price source in Settings for live values.</div>
-  <table><thead><tr><th>Holding</th><th>Value</th><th>P/L</th><th>Now %</th><th>Target</th></tr></thead><tbody id="pfBody"></tbody></table>
+  <table><thead><tr><th>Holding</th><th>Value</th><th>P/L</th><th>Now %</th></tr></thead><tbody id="pfBody"></tbody></table>
   <div class="pie-row"><div class="pie"><div id="portfolioPie"></div></div><div class="pie-legend" id="pieLegend"></div></div>
-  <div style="margin-top:6px"><div class="eyebrow" style="margin:14px 0 8px">Now vs target</div><div class="alloc" id="allocWrap"></div></div>
+  <div style="margin-top:6px"><div class="eyebrow" style="margin:14px 0 8px">Composition — descriptive</div><div class="alloc" id="allocWrap"></div></div>
   <div class="means"><b>What this means for Andrew</b><span id="pfMeans">—</span></div>
 </section>
 
-<!-- DRY POWDER -->
+<!-- DEPLOYMENT ENGINE (was: DRY POWDER) -->
 <section class="card">
-  <h2><span class="dot" id="dpDot"></span> DRY POWDER ENGINE</h2>
+  <h2><span class="dot" id="dpDot"></span> DEPLOYMENT ENGINE</h2>
   <div class="pie-row" style="align-items:flex-start">
     <div class="dp-meter"><div id="cashMeter"></div><div class="dp-label" id="cashMeterLabel">—</div></div>
     <div class="dp-stats">
-      <div class="dp-stat"><div class="k">Current cash</div><div class="v" id="dpCash">—</div></div>
-      <div class="dp-stat"><div class="k">Target cash</div><div class="v" id="dpTarget">—</div></div>
-      <div class="dp-stat"><div class="k">Deployable</div><div class="v" id="dpDeployable">—</div></div>
-      <div class="dp-stat"><div class="k">Cash drag</div><div class="v" id="dpDrag">—</div></div>
+      <div class="dp-stat"><div class="k">Monthly Plan</div><div class="v" id="dpPlan">—</div></div>
+      <div class="dp-stat"><div class="k">Broker Cash</div><div class="v" id="dpCash">—</div></div>
+      <div class="dp-stat"><div class="k">Opportunity Reserve</div><div class="v" id="dpOppRes">—</div></div>
+      <div class="dp-stat"><div class="k">Deployable (this bucket)</div><div class="v" id="dpDeployable">—</div></div>
     </div>
   </div>
   <div class="dp-rec" id="dpRec"><div class="h">Recommendation</div><div class="b" id="dpRecB">—</div></div>
@@ -510,6 +518,7 @@
 <section class="card" id="deepCard" style="display:none">
   <h2><span class="dot" style="background:var(--act)"></span> AI COMMITTEE</h2>
   <div class="card-note">Verdict first. Models advise, you approve.</div>
+  <div id="cacheBanner"></div>
   <div class="verdict-box"><div class="eyebrow">Consensus verdict</div><div class="v" id="committeeVerdict">NOT RUN</div><div class="meta" id="committeeMeta">Press Run Deep Triggers, then log each model's call.</div></div>
   <div class="consensus"><i id="consensusBar"></i></div>
   <div id="lowConfWrap"></div>
@@ -553,7 +562,7 @@
   <div class="sub-h">Cash</div>
   <div class="grid2">
     <div class="field"><label>Available cash ($)</label><input type="number" id="in_cash" step="any"></div>
-    <div class="field"><label>Reserve to keep ($) — not deployable</label><input type="number" id="in_reserve" step="any"></div>
+    <div class="field"><label>Broker Cash Floor ($) — withheld from deployment</label><input type="number" id="in_reserve" step="any"><div class="hint">Broker cash you deliberately keep untouched. Subtracts from deployable Broker Cash. This is NOT the Opportunity Reserve.</div></div>
   </div>
   <div class="save-bar"><button class="btn primary" id="savePortfolio">Save portfolio</button></div>
 </div></div>
@@ -574,9 +583,12 @@
   <div class="sub-h">Currency</div>
   <div class="field"><label>Exchange rate — 1 BHD = ? USD</label><input type="number" id="s_fx" step="any"><div class="hint">Shows every value in $ and BD. Default 2.65.</div></div>
 
-  <div class="sub-h">Target allocation % (~100)</div>
-  <div class="grid3" id="targetInputs"></div>
-  <div class="hint" id="targetSum">—</div>
+  <div class="sub-h">Full financial position (BHD)</div>
+  <div class="grid2">
+    <div class="field"><label>Savings / Liquidity (BHD)</label><input type="number" step="any" id="in_savings"><div class="hint">RING-FENCED · NON-DEPLOYABLE</div></div>
+    <div class="field"><label>Treasury Bills (BHD)</label><input type="number" step="any" id="in_tbills"><div class="hint">RING-FENCED · NON-DEPLOYABLE</div></div>
+  </div>
+  <div class="field"><label>Opportunity Reserve (BHD)</label><input type="number" step="any" id="in_oppres"><div class="hint">The ONLY route by which external capital becomes deployable. You fund this manually — savings and T-Bills never flow here automatically. Default BHD 0.</div></div>
 
   <div class="sub-h">Live price source (optional)</div>
   <div class="field"><label>Finnhub API key — free key works in-browser for US ETFs/stocks</label><input type="text" id="s_finnhub" placeholder="leave blank for manual prices"><div class="hint">Used only on your device. VIX, yields &amp; macro are manual.</div></div>
@@ -665,10 +677,18 @@ function defaults(){return{
     INDA:{name:"India (MSCI)",units:6.4,avgCost:52,price:55},
     VXUS:{name:"Total international",units:5,avgCost:64,price:70}
   },
-  cash:1900, reserve:0,
+  cash:1900,
+  // Broker Cash Floor (USD, broker-side): cash deliberately WITHHELD from discretionary deployment.
+  // Subtracts from deployable Broker Cash. Completely separate from opportunityReserve below.
+  reserve:0,
+  // Opportunity Reserve (BHD, external): the ONLY route by which external liquidity becomes
+  // deployable. User-funded, manual, default 0. Never auto-filled from savings/T-bills.
+  opportunityReserve:0,
+  // RING-FENCED / NON-DEPLOYABLE external position (BHD). Descriptive only.
+  // Mechanically excluded from pot, cash, deployable, deployNow and both AI packets.
+  position:{savingsBhd:0, tbillsBhd:0},
   fx:2.65,
-  targets:{VOO:40,QQQ:18,MSFT:8,NVDA:6,VXUS:8,AIA:6,INDA:6,CASH:8},
-  finnhubKey:"", backendUrl:"", newsList:[],
+  finnhubKey:"", backendUrl:"", cashBucket:"plan", newsList:[],
   market:{spx:null,ndx:null,vix:null,y2:null,y10:null,dxy:null,live:false},
   macro:{cpi:null,cpiPrev:null,fedRate:null,cutProb:null,fg:null,breadth:null,cpiRisk:"Medium",news:""},
   events:[
@@ -684,8 +704,26 @@ function defaults(){return{
   alerts:{}, alertState:{}, alertSettings:{cashDrag:true,deploy:true,risk:true,events:true,drift:true,behaviour:true},
   snapshots:{}, lastRefresh:null
 };}
+/* ── WRITTEN INVESTMENT POLICY — the primary authority ─────────────────────────
+ * Declared ABOVE compute(). compute() may read POLICY; nothing inside compute(),
+ * the opportunity scores, or the AI committee may write to it or change the
+ * destination. BHD is canonical (Ruling 3): the policy is BHD-denominated, so FX
+ * movement can never make "BHD500 -> ISAC" drift into a different policy amount.  */
+/* ── BUILD IDENTIFICATION (V2 §3.1) ────────────────────────────────────────────
+ * FE_VERSION  = this file's build. Bump by hand on each frontend deploy.
+ * EXPECTED_API = the backend build this frontend was written against.
+ * The chip in the header shows "FE x · API y" and turns amber on mismatch, so a stale
+ * GitHub Pages page or a stale Render backend is visible at a glance instead of silent. */
+const FE_VERSION="2.0.0", EXPECTED_API="2.0.0";
+let API_VERSION_SEEN=null;
+
+const POLICY=Object.freeze({monthlyPlanBhd:500, destination:"ISAC.L", status:"ON POLICY",
+  reviewTriggerPc:50});   // ISAC ~50% of INVESTED equity = review flag only. Never auto-rebalance.
+
 let S=Object.assign(defaults(),store.load()||{});
-S.targets=Object.assign({CASH:8},S.targets||{});
+delete S.targets;                                   // V2: legacy target-allocation authority retired
+S.position=Object.assign({savingsBhd:0,tbillsBhd:0},S.position||{});
+if(S.opportunityReserve==null)S.opportunityReserve=0;
 S.market=Object.assign(defaults().market,S.market||{});
 S.macro=Object.assign(defaults().macro,S.macro||{});
 S.committee=S.committee||{models:{}}; S.committee.models=Object.assign(defaults().committee.models,S.committee.models||{});
@@ -699,6 +737,10 @@ const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
 const r0=n=>Math.round(n);
 function usd(n){return (n<0?"-":"")+"$"+Math.abs(r0(n)).toLocaleString();}
 function bhd(n){return "BD "+Math.abs(n/(S.fx||2.65)).toLocaleString(undefined,{maximumFractionDigits:0});}
+// BHD is CANONICAL for policy state (Ruling 3). These convert BHD -> USD for display/context only.
+// The stored policy amount never changes, so FX movement can never alter "BHD500 -> ISAC · ON POLICY".
+function bhdToUsd(b){return (+b||0)*(S.fx||2.65);}
+function bhdLabel(b){return "BHD "+(+b||0).toLocaleString(undefined,{maximumFractionDigits:0});}
 function dual(n){return usd(n)+' <span class="bhd">/ '+bhd(n)+'</span>';}
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));}
 // A model may return a seat field (deploy, risk, key point) as an object/array instead of a string.
@@ -766,11 +808,17 @@ function convictionGate(danger){
   const vixDailyClose= live && S.market.vix!=null;          // FRED VIX is a daily close — lags intraday
   // -- News severity (keyword heuristic) --
   const news=S.newsList||[];
-  const HI=/\b(war|invasion|invade|strikes?|attack|missile|nuclear|conflict|escalat\w*|hormuz|sanction\w*|crash|plunge|sell-?off|collapse|default|crisis|shock|tumble)\b/i;
+  // Headline matcher (RULING D). Deliberately DUMB and deliberately narrow. Its only job is to
+  // notice when several genuinely alarming headlines cluster — it is NOT a news analyst and must
+  // never be made "smart". Removed: strikes / default / shock / crisis — each produced obvious
+  // false positives on ordinary financial copy ("strikes a deal", "default rates fall",
+  // "Fed shock: inflation cools", "no crisis in regional banks").
+  const HI=/\b(war|invasion|invade|attack|missile|nuclear|conflict|escalat\w*|hormuz|sanction\w*|crash|plunge|sell-?off|collapse|tumble)\b/i;
   const WAR=/\b(war|strikes?|attack|missile|invasion|hormuz|conflict|escalat\w*|nuclear)\b/i;
   const txt=n=>String((n&&(n.headline||n))||'');
   const sevHits=news.filter(n=>HI.test(txt(n))).length;
-  const newsSeverity= sevHits>=2?'high':sevHits===1?'medium':'low';
+  // RULING D: threshold raised 2 -> 3. One or two alarming headlines are an ordinary news day.
+  const newsSeverity= sevHits>=3?'high':sevHits>=1?'medium':'low';
   const warHeadline=news.some(n=>WAR.test(txt(n)));
   // -- Index move vs prior snapshot --
   const keys=Object.keys(S.snapshots||{}).sort(), prevKey=keys.filter(k=>k<todayKey()).pop(), prev=prevKey?S.snapshots[prevKey]:null;
@@ -778,9 +826,22 @@ function convictionGate(danger){
   const spxPct=prev?pcOf(S.market.spx,prev.spx):null, ndxPct=prev?pcOf(S.market.ndx,prev.ndx):null;
   const sharpDrop= (spxPct!=null&&spxPct<=-1.5)||(ndxPct!=null&&ndxPct<=-1.5);
   // -- Contradiction detection (the four engines disagreeing) --
+  // -- Contradictions. NOTE: these do NOT all belong to the same channel. --
   const contras=[];
-  if(newsSeverity==='high'&&danger<50) contras.push('News reads high-risk but the danger score reads calm');
+  // RULING A: the headline matcher disagreeing with the danger score does NOT establish market
+  // danger. It establishes that two signals conflict and the system cannot confidently interpret
+  // the news — the system has information, but conflicting, low-quality information. That is a
+  // VISIBILITY statement, so it is tagged channel:'blindness' explicitly (the _BLIND text regex
+  // below would not catch it). Consequence, via the existing untouched blindness machinery:
+  // AMBER / LOW VISIBILITY -> Broker Cash and Opportunity Reserve held, Monthly Plan continues.
+  if(newsSeverity==='high'&&danger<50)
+    reasons.push({sev:'red',channel:'blindness',
+      txt:'News language reads alarming but market data reads calm \u2014 can\u2019t interpret this confidently'});
+  // This one is DIFFERENT and stays channel:'risk'. It is not a word-matcher: the indexes actually
+  // moved 1.5%+ against a calm danger score. That is real market evidence, and real market danger
+  // must retain its ability to cap every bucket including the Monthly Plan.
   if(sharpDrop&&danger<50) contras.push('Indexes down sharply today but the danger score reads calm');
+  // Already lands in 'blindness' via the _BLIND regex ("geo"/"officer") \u2014 a seat that didn't run.
   if(warHeadline&&committeeRun&&geoFailed) contras.push('Geopolitical headlines, but the Geopolitical seat couldn\u2019t run');
   // -- Event risk --
   const nx=nextEvent();
@@ -798,6 +859,21 @@ function convictionGate(danger){
   if(committeeRun&&seatsResp!=null&&seatsConf!=null&&seatsResp<seatsConf&&!macroFailed&&!geoFailed) amber((seatsConf-seatsResp)+' committee seat(s) dropped out');
   if(committeeRun&&usedFallback&&!collapsed) amber('Some seats answered via fallback model');
   if(!committeeRun) amber('No committee run yet \u2014 verdict not factored in');
+  // -- News-feed blindness: backend connected but no headlines came back means we cannot see news,
+  //    which must NOT read as "calm". Flag it as a visibility (blindness) gap, not market risk. --
+  if(S.backendUrl && (!news||!news.length)) reasons.push({sev:'amber',txt:'News feed returned nothing \u2014 headline risk not assessed',channel:'blindness'});
+  // -- Split every reason into two channels: real MARKET RISK vs SYSTEM BLINDNESS (can't see). --
+  const _BLIND=/seat|fallback|geo|visib|stale|manual|dropped out|no committee|single model|collapsed|officer|returned nothing/i;
+  reasons.forEach(function(r){ if(!r.channel) r.channel=_BLIND.test(r.txt)?'blindness':'risk'; });
+  const _riskReds=reasons.filter(function(r){return r.channel==='risk'&&r.sev==='red';}).length;
+  const _riskAny=reasons.filter(function(r){return r.channel==='risk';}).length;
+  const _blindReds=reasons.filter(function(r){return r.channel==='blindness'&&r.sev==='red';}).length;
+  const _blindAny=reasons.filter(function(r){return r.channel==='blindness';}).length;
+  // Market Risk level: driven by real-risk reasons AND the danger score (thresholds tunable: 75 / 60).
+  let marketRisk=(_riskReds>=1||(danger!=null&&danger>=75))?'RED':((_riskAny>=1||(danger!=null&&danger>=60))?'YELLOW':'GREEN');
+  // System Health: driven only by blindness reasons (a quota-dead seat must never read as danger).
+  let blindLevel=_blindReds>=1?'RED':(_blindAny>=1?'YELLOW':'GREEN');
+  let sysHealth=100-_blindReds*30-(_blindAny-_blindReds)*12; if(sysHealth<0)sysHealth=0;
   // -- Level --
   const reds=reasons.filter(r=>r.sev==='red').length;
   let level;
@@ -806,11 +882,12 @@ function convictionGate(danger){
   else if(reasons.length>=1) level='YELLOW';
   else level='GREEN';
   const allowed={GREEN:'DEPLOY',YELLOW:'DEPLOY SMALL / WATCH',RED:'WATCH ONLY',BLACK:'WAIT \u2014 NO ALLOCATION'}[level];
-  return {level,allowed,reasons,reds};
+  if(level==='BLACK'){ marketRisk='BLACK'; blindLevel='RED'; }   // no market data at all: can't price risk AND blind
+  return {level,allowed,reasons,reds,marketRisk,blindness:{level:blindLevel,health:sysHealth,reds:_blindReds}};
 }
 
 function compute(){
-  const t=S.targets,list=syms();
+  const list=syms();
   let invested=0,cost=0,dayPl=0,haveDp=false,etoroPl=0,haveEtoroPl=false;const rows={};
   list.forEach(a=>{const h=S.holdings[a];const u=+h.units||0,p=+h.price||0,ac=+h.avgCost||0;const val=u*p;
     invested+=val; cost+=u*ac;
@@ -821,10 +898,17 @@ function compute(){
   const cash=+S.cash||0,reserve=+S.reserve||0,pot=invested+cash;
   const totPl = haveEtoroPl?etoroPl:(invested-cost);
   if(S.etoroConnected&&S.etoroDayPl!=null){dayPl=+S.etoroDayPl;haveDp=true;}
-  list.forEach(a=>{rows[a].nowPc=pot>0?rows[a].val/pot*100:0;rows[a].tgtPc=+t[a]||0;rows[a].drift=rows[a].nowPc-rows[a].tgtPc;});
-  let drift=0;list.forEach(a=>drift+=Math.abs(rows[a].drift));
-  const cashPc=pot>0?cash/pot*100:0,cashTgt=+t.CASH||8;drift+=Math.abs(cashPc-cashTgt);
-  const cashDrag=cashPc>30?"Severe":cashPc>20?"High":cashPc>10?"Medium":"Low";
+  // V2: composition is DESCRIPTIVE ONLY. No tgtPc, no drift, no cash target, no cash drag.
+  // A holding absent from any table is simply a holding — it can never read as "0% target".
+  list.forEach(a=>{rows[a].nowPc=pot>0?rows[a].val/pot*100:0;});
+  const cashPc=pot>0?cash/pot*100:0;
+
+  // The ONE retained composition signal (brief 3.3): ISAC approaching ~50% of INVESTED equity.
+  // Equity = eToro holdings market value only — excludes broker cash, savings, T-bills, reserve.
+  // REVIEW FLAG ONLY: never auto-rebalance, never redirect the Monthly Plan, never "overweight".
+  const isacVal=(rows[POLICY.destination]&&rows[POLICY.destination].val)||0;
+  const isacPc=invested>0?isacVal/invested*100:0;
+  const isacReview=isacVal>0&&isacPc>=POLICY.reviewTriggerPc-5;   // ~50%: flag as it approaches
 
   // concentration: largest single stock
   let topStock=null;list.forEach(a=>{if(isStock(a)&&(!topStock||rows[a].nowPc>rows[topStock].nowPc))topStock=a;});
@@ -832,11 +916,11 @@ function compute(){
 
   const mk=S.market,ma=S.macro,vix=mk.vix,fg=ma.fg;
 
-  // health /10
-  let health=10;health-=({Low:0,Medium:1,High:2.5,Severe:4})[cashDrag];
-  health-=drift<10?0:drift<25?1:drift<45?2:3;
-  if(concPc>10)health-=clamp((concPc-10)*0.25,0,2.5);
-  health=clamp(health,0,10);
+  // V2 (Ruling 2): the Portfolio Health /10 score is RETIRED, not re-based.
+  // It was materially driven by cash-target drag and allocation drift, both of which are gone.
+  // Re-basing it on market danger + system health would create a third blended signal and
+  // undermine the Blindness-vs-Danger separation. Concentration is surfaced directly instead.
+  // Authoritative signals are now: Market Risk | System Health | Policy Status | resolved action.
 
   // market danger 0-100 (explainable components, all from real inputs)
   const dg={};
@@ -848,43 +932,58 @@ function compute(){
   const danger=clamp(Math.round(dg.vix+dg.yields+dg.cpi+dg.breadth+dg.sentiment),0,100);
   const dangerLabel=danger<25?"Low":danger<50?"Moderate":danger<75?"Elevated":"High";
 
-  // opportunity overall 0-100
-  const excessPc=Math.max(0,cashPc-cashTgt);
-  let opp=35;
-  opp+=clamp(excessPc*1.5,0,28);
+  // opportunity overall 0-100 — TACTICAL CONTEXT ONLY, never an allocation authority.
+  // V2: excess-cash-over-target and target-shortfall terms removed. Fear/valuation inputs only.
+  let opp=45;
   opp+= fg!=null?clamp((50-fg)/50*30,0,30):(vix!=null&&vix>22?16:vix>18?8:0);
-  let underTot=0;list.forEach(a=>underTot+=Math.max(0,rows[a].tgtPc-rows[a].nowPc));
-  opp+=clamp(underTot*0.5,0,14);
   opp-= danger>75?8:0;
   const opportunity=clamp(Math.round(opp),0,100);
 
   // per-asset opportunity 0-100
   const oppScores={};
+  // V2: target-gap terms removed. Stability + drawdown + fear only. TACTICAL ATTRACTIVENESS,
+  // NOT MONTHLY PLAN ALLOCATION — these can never alter the policy destination.
   list.forEach(a=>{if(isCopyHold(a))return;const r=rows[a],mt=meta(a);let s=55+mt.stability;
-    s+=clamp(Math.max(0,r.tgtPc-r.nowPc)*1.2,0,18);
-    s-=clamp(Math.max(0,r.nowPc-r.tgtPc)*1.2,0,18);
     if(r.dp!=null&&r.dp<0)s+=Math.min(10,-r.dp*1.5);
     const fear=vix!=null&&vix>22?8:vix!=null&&vix>18?4:0; s+= mt.type==="stockHi"?fear*0.4:fear;
     if(mt.type==="stockHi"&&danger>70)s-=8;
     oppScores[a]=clamp(Math.round(s),0,100);});
 
-  // dry powder
-  const cashTgtDollar=pot*cashTgt/100;
-  const excessDollar=Math.max(0,cash-cashTgtDollar);
-  const deployable=Math.max(0,Math.min(excessDollar,cash-reserve));
-  let deployNow=deployable>0?Math.round(deployable*0.6/50)*50:0;if(deployNow<50&&deployable>=50)deployNow=Math.round(deployable/50)*50;
-  let sfTot=0;list.forEach(a=>{const td=pot*(+t[a]||0)/100;rows[a].shortfall=Math.max(0,td-rows[a].val);sfTot+=rows[a].shortfall;});
+  /* ── V2 DEPLOYMENT MATHS — bucket-derived, never target-derived ──────────────
+   * Three genuinely different kinds of capital. Savings and Treasury Bills are
+   * RING-FENCED and appear NOWHERE in this block by construction.
+   *   plan          -> POLICY.monthlyPlanBhd, canonical BHD. Always available: it is a
+   *                    policy commitment, not a slice of broker cash. Zero broker cash
+   *                    therefore no longer reads as "you have no money".
+   *   discretionary -> Broker Cash minus the Broker Cash Floor (S.reserve).
+   *   drypowder     -> LEGACY WIRE IDENTIFIER. User-facing meaning is OPPORTUNITY RESERVE:
+   *                    explicitly designated external deployable capital (BHD, default 0).
+   *                    It no longer means target-derived excess cash. Kept as the wire value
+   *                    because committee-resolver.js throws on unknown buckets, which would
+   *                    silently drop the resolved action out of the headline.            */
+  const bucket=S.cashBucket||"plan";
+  const planUsd=bhdToUsd(POLICY.monthlyPlanBhd);              // display/context only; BHD is canonical
+  const brokerDeployable=Math.max(0,cash-reserve);            // Broker Cash Floor withheld
+  const oppReserveUsd=bhdToUsd(+S.opportunityReserve||0);
+  const deployable= bucket==="plan"?planUsd : bucket==="discretionary"?brokerDeployable : oppReserveUsd;
+  // Monthly Plan is the whole policy amount — no tranche heuristic, nothing to split.
+  // Discretionary/Opportunity keep the existing gradual-tranche behaviour.
+  let deployNow;
+  if(bucket==="plan"){ deployNow=deployable; }
+  else { deployNow=deployable>0?Math.round(deployable*0.6/50)*50:0;
+         if(deployNow<50&&deployable>=50)deployNow=Math.round(deployable/50)*50; }
+  // V2 (Ruling 3): the target-shortfall `split` is REMOVED and NOT replaced. The Monthly Plan
+  // has one destination named by written policy; no second engine prescribes an allocation.
   const split=[];
-  if(deployNow>0){list.forEach(a=>{const share=sfTot>0?rows[a].shortfall/sfTot:(+t[a]||0)/100;const amt=Math.round(deployNow*share/50)*50;if(amt>0)split.push({asset:a,amt});});
-    const asg=split.reduce((s,x)=>s+x.amt,0);if(split.length&&asg!==deployNow){split.sort((a,b)=>b.amt-a.amt);split[0].amt+=deployNow-asg;}split.sort((a,b)=>b.amt-a.amt);}
 
   const ev=nextEvent(),bigSoon=ev&&ev.impact==="high"&&ev.days<=2;
   const waitForEvent= deployNow>0 && (bigSoon || danger>78);
 
+  // V2: drift and cash-drag inputs removed. Danger, concentration, opportunity and events only.
   let status="HOLD";
   if(danger>=78||concPc>12)status="REDUCE RISK";
-  else if(cashDrag==="High"||cashDrag==="Severe"||opportunity>=70||drift>25)status="ACT";
-  else if(bigSoon||drift>12||cashDrag==="Medium")status="WATCH";
+  else if(opportunity>=70)status="ACT";
+  else if(bigSoon)status="WATCH";
   let light= status==="REDUCE RISK"?"red"
     :(deployNow>0&&!waitForEvent&&opportunity>=65&&danger<55)?"green"
     :(deployNow>0&&waitForEvent)?"amber"
@@ -893,54 +992,70 @@ function compute(){
 
   // Conviction gate — cap the recommendation to what the inputs justify (runs before the verdict is shown).
   const conviction=convictionGate(danger);
-  let gateBlock=false, gateSmall=false;
-  if(conviction.level==="RED"||conviction.level==="BLACK"){
+  let gateBlock=false, gateSmall=false, gateBlind=false;
+  const _gmr=conviction.marketRisk||"GREEN";
+  const _gbl=(conviction.blindness&&conviction.blindness.level)||"GREEN";
+  if(_gmr==="RED"||_gmr==="BLACK"){                       // real market danger caps everything
     light="red"; gateBlock=true;
-    lightAct= conviction.level==="BLACK"?"WAIT \u2014 NO ALLOCATION":"WATCH ONLY \u00b7 LOW CONVICTION";
-  } else if(conviction.level==="YELLOW"){
+    lightAct= _gmr==="BLACK"?"WAIT \u2014 NO ALLOCATION":"WATCH ONLY \u00b7 MARKET RISK";
+  } else if(_gbl==="RED"){                                 // system can't see: hold discretionary cash, NOT market danger
+    if(light==="green") light="amber";
+    gateBlock=true; gateBlind=true;
+    lightAct="HOLD \u00b7 LOW VISIBILITY";
+  } else if(_gmr==="YELLOW"||_gbl==="YELLOW"){
     if(light==="green") light="amber";
     if(deployNow>0) lightAct="DEPLOY SMALL \u00b7 CAUTION";
     gateSmall=true;
   }
 
-  const c={rows,list,invested,cost,cash,reserve,pot,totPl,dayPl,haveDp,haveEtoroPl,cashPc,cashTgt,drift,cashDrag,
-    topStock,concPc,danger,dangerLabel,dg,opportunity,oppScores,excessPc,excessDollar,deployable,deployNow,split,
-    cashTgtDollar,ev,bigSoon,waitForEvent,status,light,lightAct,fg,vix,health:+health.toFixed(1),conviction,gateBlock,gateSmall};
-  c.grand=allocateAmount(1000,c);
+  const c={rows,list,invested,cost,cash,reserve,pot,totPl,dayPl,haveDp,haveEtoroPl,cashPc,
+    topStock,concPc,danger,dangerLabel,dg,opportunity,oppScores,deployable,deployNow,split,
+    ev,bigSoon,waitForEvent,status,light,lightAct,fg,vix,conviction,gateBlock,gateSmall,gateBlind,
+    // V2 policy + capital state
+    policy:POLICY, bucket, planUsd, brokerDeployable, oppReserveUsd,
+    isacVal, isacPc, isacReview,
+    // RING-FENCED (BHD) — descriptive only, excluded from every figure above by construction
+    ringFenced:{savingsBhd:+S.position.savingsBhd||0, tbillsBhd:+S.position.tbillsBhd||0}};
+  c.ringFenced.totalBhd=c.ringFenced.savingsBhd+c.ringFenced.tbillsBhd;
   return c;
 }
 
-function allocateAmount(amount,c){
-  if(c.waitForEvent)return{wait:true,reason:c.ev&&c.ev.impact==="high"&&c.ev.days<=2?("WAIT FOR "+c.ev.name.toUpperCase()):"WAIT — market danger high"};
-  const list=c.list.filter(s=>c.oppScores[s]>0);
-  if(!list.length)return{wait:false,split:[]};
-  let w={},tot=0;list.forEach(s=>{w[s]=Math.max(1,c.oppScores[s]);tot+=w[s];});
-  let alloc={};list.forEach(s=>alloc[s]=amount*w[s]/tot);
-  let overflow=0;list.forEach(s=>{const cap=meta(s).cap*amount;if(alloc[s]>cap){overflow+=alloc[s]-cap;alloc[s]=cap;}});
-  if(overflow>0.01){const room=list.filter(s=>alloc[s]<meta(s).cap*amount).sort((a,b)=>meta(b).stability-meta(a).stability);
-    for(const s of room){const cap=meta(s).cap*amount;const add=Math.min(overflow,cap-alloc[s]);alloc[s]+=add;overflow-=add;if(overflow<=0.01)break;}}
-  let split=list.map(s=>({asset:s,amt:Math.round(alloc[s]/50)*50})).filter(x=>x.amt>0);
-  let sum=split.reduce((a,b)=>a+b.amt,0);
-  if(split.length&&sum!==amount){split.sort((a,b)=>meta(b.asset).stability-meta(a.asset).stability);split[0].amt+=amount-sum;if(split[0].amt<0)split[0].amt=0;}
-  return{wait:false,split:split.filter(x=>x.amt>0).sort((a,b)=>b.amt-a.amt)};
-}
+/* V2 (Ruling 3): allocateAmount() REMOVED. It weighted a prescriptive $1,000 asset split by
+ * opportunity scores — a second engine independently telling the user how to allocate capital,
+ * competing with the resolved final action and with the written policy. Not replaced. */
 
 /* ───────── render ───────── */
 let countdownTimer=null;
 function renderConviction(c){
   const el=$("convictionGate"); if(!el)return; const g=c.conviction; if(!g){el.innerHTML="";return;}
-  const map={GREEN:{col:C.act,tag:"CLEAR"},YELLOW:{col:C.watch,tag:"CAUTION"},RED:{col:C.risk,tag:"LOW"},BLACK:{col:C.risk,tag:"BLOCKED"}};
-  const m=map[g.level]||map.YELLOW;
-  const reds=g.reasons.filter(r=>r.sev==="red"), ambers=g.reasons.filter(r=>r.sev==="amber");
-  const show=(reds.length?reds:ambers).slice(0,5);
-  el.innerHTML=`<div style="border:1.5px solid ${m.col};border-radius:14px;padding:13px 15px;margin-bottom:12px;background:${g.level==="GREEN"?"transparent":"rgba(0,0,0,.22)"}">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
-      <div><div style="font-family:var(--mono);font-size:10.5px;color:var(--muted);letter-spacing:.1em">CONVICTION</div>
-      <div style="font-family:var(--disp);font-weight:700;font-size:19px;color:${m.col};text-shadow:0 0 12px ${m.col}55">${g.level} \u00b7 ${esc(g.allowed)}</div></div>
-      <span style="font-family:var(--mono);font-size:10.5px;color:${m.col};border:1px solid ${m.col};border-radius:6px;padding:2px 7px;white-space:nowrap">${m.tag}</span>
+  const _mr=g.marketRisk||"GREEN";
+  const _bl=(g.blindness&&g.blindness.level)||"GREEN";
+  let state, col, tag, head, foot;
+  const riskReds=g.reasons.filter(r=>r.channel==="risk"&&r.sev==="red");
+  const blindRs=g.reasons.filter(r=>r.channel==="blindness");
+  if(_mr==="RED"||_mr==="BLACK"){
+    state="risk"; col=C.risk; tag=_mr==="BLACK"?"BLOCKED":"MARKET RISK";
+    head="MARKET RISK \u00b7 "+(_mr==="BLACK"?"WAIT":"WATCH ONLY");
+    foot="Deployment is held across <b>all buckets, including Monthly Plan</b>, while market conditions are flagged \u2014 the system won't sound more confident than the data justifies.";
+  } else if(_bl==="RED"){
+    state="blind"; col=C.watch; tag="LOW VISIBILITY";
+    head="LOW VISIBILITY \u00b7 HOLD";
+    foot="Discretionary capital (Broker Cash, Opportunity Reserve) is held while the system can't see clearly. <b>Monthly Plan DCA still runs</b> \u2014 this is a visibility flag, not market danger.";
+  } else if(_mr==="YELLOW"||_bl==="YELLOW"){
+    state="caution"; col=C.watch; tag="CAUTION";
+    head="CAUTION \u00b7 DEPLOY SMALL";
+    foot="Some inputs are soft \u2014 deploy a small tranche at most, not the full amount.";
+  } else {
+    state="clear"; col=C.act; tag="CLEAR"; head="CLEAR \u00b7 DEPLOY"; foot="";
+  }
+  const _pick = state==="risk"?(riskReds.length?riskReds:g.reasons.filter(r=>r.sev==="red")) : state==="blind"?blindRs : g.reasons;
+  const show=_pick.slice(0,5);
+  el.innerHTML=`<div style="border:1.5px solid ${col};border-radius:14px;padding:11px 15px;margin-bottom:12px;background:${state==="clear"?"transparent":"rgba(0,0,0,.22)"}">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+      <div style="font-family:var(--mono);font-size:10.5px;color:var(--muted);letter-spacing:.1em">CONVICTION FLAGS</div>
+      <span style="font-family:var(--mono);font-size:10.5px;color:${col};border:1px solid ${col};border-radius:6px;padding:2px 7px;white-space:nowrap">${tag}</span>
     </div>
-    ${show.length?`<ul style="margin:10px 0 0;padding-left:17px;line-height:1.55">${show.map(r=>`<li style="font-size:12.5px;color:${r.sev==="red"?C.risk:C.watch}">${esc(r.txt)}</li>`).join("")}</ul>`:`<div style="font-size:12.5px;color:var(--muted-2);margin-top:7px">Fresh inputs, committee intact, no contradictions \u2014 full deployment guidance allowed.</div>`}
-    ${g.level!=="GREEN"?`<div style="font-size:11.5px;color:var(--muted-2);margin-top:10px;border-top:1px solid var(--line-soft);padding-top:8px">Deployment guidance below is capped to <b style="color:${m.col}">${esc(g.allowed)}</b> until these clear \u2014 the system won't sound more confident than the data justifies.</div>`:""}
+    ${show.length?`<ul style="margin:8px 0 0;padding-left:17px;line-height:1.55">${show.map(r=>`<li style="font-size:12.5px;color:${(r.sev==="red"&&state!=="blind")?C.risk:C.watch}">${esc(r.txt)}</li>`).join("")}</ul>`:`<div style="font-size:12.5px;color:var(--muted-2);margin-top:6px">Fresh inputs, committee intact, no contradictions \u2014 full deployment guidance allowed.</div>`}
   </div>`;
 }
 function renderTrend(){
@@ -974,6 +1089,7 @@ function renderTrend(){
     note.innerHTML=`Now <b>${usd(cur.v)}</b> · <span style="color:var(--act)">peak ${usd(vMax)}</span> · <span style="color:var(--risk)">low ${usd(vMin)}</span> · ${Math.abs(offPeak)<0.1?"at peak":Math.abs(offPeak).toFixed(1)+"% off peak"} <span style="color:var(--muted-2)">(${n} ${unit}${perDay?"":" · daily trend builds over time"})</span>`;
   }
 }
+let LAST_GATE=null;
 function render(){
   const c=compute();
   $("pv").innerHTML=usd(c.pot)+'<span class="bhd">/ '+bhd(c.pot)+'</span>';
@@ -985,31 +1101,37 @@ function render(){
   setPl("totPl",c.invested>0?c.totPl:null);
   $("cashV").innerHTML=dual(c.cash);
   $("cashPc").textContent=c.cashPc.toFixed(1)+"%";
+  // V2: label names the selected bucket so the figure can't be mistaken for a single pot.
+  $("dryK").textContent="Deployable · "+({plan:"Monthly Plan",discretionary:"Broker Cash",drypowder:"Opportunity Reserve"}[c.bucket]||"");
   $("dryV").innerHTML=c.deployable>0?dual(c.deployable):"—";
 
   ["R","A","G"].forEach(x=>$("lamp"+x).classList.remove("on"));
   $({red:"lampR",amber:"lampA",green:"lampG"}[c.light]).classList.add("on");
   const lcol={red:C.risk,amber:C.watch,green:C.act}[c.light];
   $("tlAction").textContent=c.lightAct;$("tlAction").style.color=lcol;$("trafficLight").style.borderColor=lcol;
-  const gateReason=c.conviction&&c.conviction.reasons.filter(r=>r.sev==="red")[0];
+  const gateRiskReason=c.conviction&&(c.conviction.reasons.filter(r=>r.channel==="risk"&&r.sev==="red")[0]);
+  const gateBlindReason=c.conviction&&(c.conviction.reasons.filter(r=>r.channel==="blindness"&&r.sev==="red")[0]||c.conviction.reasons.filter(r=>r.channel==="blindness")[0]);
   $("tlWhy").textContent=c.pot<=0?"Enter your portfolio to get a decision."
-    : c.gateBlock?("Conviction "+c.conviction.level.toLowerCase()+" \u2014 "+(gateReason?gateReason.txt.toLowerCase():"key inputs incomplete")+". Recommendation held to "+c.conviction.allowed.toLowerCase()+".")
+    : c.gateBlind?("System visibility is low \u2014 "+(gateBlindReason?gateBlindReason.txt.toLowerCase():"key inputs unavailable")+". Discretionary cash held; Monthly Plan still deploys. Visibility call, not market danger.")
+    : c.gateBlock?("Market risk is high \u2014 "+(gateRiskReason?gateRiskReason.txt.toLowerCase():"key inputs incomplete")+". Recommendation held to "+c.conviction.allowed.toLowerCase()+".")
     : c.light==="red"?(c.status==="REDUCE RISK"?(c.concPc>12?`${c.topStock} is ${c.concPc.toFixed(0)}% of the book — too concentrated. Don't add; consider trimming.`:"Risk is high. Don't add today."):"Hold off today.")
     : c.light==="amber"?(c.gateSmall?"Some inputs are soft \u2014 deploy a small tranche at most, not the full amount.":(c.waitForEvent&&c.ev?`${c.ev.name} in ${c.ev.days}d — deploy part now, hold the rest until after.`:"Deploy in tranches, not all at once."))
-    : (c.deployNow>0?`Deploy ${usd(c.deployNow)} into what's below target.`:"You're on plan. Nothing to force.");
-  renderConviction(c);
+    : (c.bucket==="plan"?`Monthly Plan: ${bhdLabel(c.policy.monthlyPlanBhd)} → ${c.policy.destination} · ${c.policy.status}.`:c.deployNow>0?`Up to ${usd(c.deployNow)} available in this bucket.`:"You're on plan. Nothing to force.");
+  LAST_GATE=(c&&c.conviction)||null;renderConviction(c);
 
-  gauge("gHealth","vHealth",c.health,10,c.health>=7?C.act:c.health>=4?C.watch:C.risk,c.health.toFixed(1));
+  // V2 (Ruling 2): Portfolio Health /10 retired. This slot now shows concentration directly —
+  // a real measured figure rather than a blended score with no policy basis.
+  gauge("gHealth","vHealth",c.concPc,30,c.concPc<10?C.act:c.concPc<15?C.watch:C.risk,c.concPc.toFixed(1)+"%");
   gauge("gDanger","vDanger",c.danger,100,c.danger<25?C.act:c.danger<50?C.watch:C.risk,String(c.danger));
   gauge("gOpp","vOpp",c.opportunity,100,c.opportunity>=65?C.act:c.opportunity>=40?C.watch:C.hold,String(c.opportunity));
-  chip("chCash",c.cashDrag,{Low:C.act,Medium:C.watch,High:C.risk,Severe:C.risk}[c.cashDrag]);
+  chip("chCash",c.cashPc.toFixed(0)+"%",C.data);   // V2: descriptive, no drag band, no target
   chip("chFg",c.fg==null?"—":c.fg+" "+fgLabel(c.fg),c.fg==null?C.muted:c.fg<25?C.risk:c.fg<45?C.watch:c.fg<=55?C.muted:c.fg<=75?C.act:C.risk);
   chip("chStatus",c.status,{ACT:C.act,WATCH:C.watch,HOLD:C.hold,"REDUCE RISK":C.risk}[c.status]);
 
   renderBehaviour(c); renderAlerts(c); renderMarket(c); renderMacro(c); renderNews();
   renderChanged(c); renderDanger(c); renderOpp(c); renderPortfolio(c);
   renderDryPowder(c); renderRadar(c); startCountdown(); renderCommittee(); renderGuide(c); renderJournal();
-  renderConfidence(); renderSourcePanel(); renderTrend(); writeSnapshot(c);
+  renderConfidence(); renderBuildChip(); renderSourcePanel(); renderTrend(); writeSnapshot(c);
   return c;
 }
 function fgLabel(v){return v<25?"Ext Fear":v<45?"Fear":v<=55?"Neutral":v<=75?"Greed":"Ext Greed";}
@@ -1024,9 +1146,8 @@ function renderBehaviour(c){
   const checks=S.behaviour.refreshLog.length,deeps=S.behaviour.deepLog.length,f=[];
   if(checks>12)f.push("You've refreshed "+checks+" times in 24h. No material info has changed since this morning.");
   if(deeps>3)f.push("You've run Deep Triggers "+deeps+" times today. The AIs won't change their mind every hour.");
-  if(c.cashDrag==="High"||c.cashDrag==="Severe")f.push("Holding "+c.cashPc.toFixed(0)+"% cash — money sitting out of the market.");
   if(c.concPc>10)f.push(c.topStock+" is "+c.concPc.toFixed(1)+"% of the book. One stock steering the ship.");
-  if(c.excessPc>5&&checks>4)f.push("Lots of checking while sitting on dry powder — that's waiting for a perfect entry that won't come.");
+  if(c.brokerDeployable>0&&checks>4)f.push("Lots of checking while sitting on discretionary cash — that's waiting for a perfect entry that won't come.");
   const lvl=f.length>=3?"high":f.length>=1?"med":"low";
   const bc=$("bhvCard");
   if(f.length){bc.style.display="block";bc.classList.toggle("high",lvl==="high");$("bhvList").innerHTML=f.map(x=>"<li>"+esc(x)+"</li>").join("");
@@ -1103,44 +1224,78 @@ function renderOpp(c){
     return `<div class="opp"><div class="top"><span class="nm">${a}</span><span class="sc" style="color:${col}">${s}</span></div><div class="track"><i style="width:${s}%;background:${col}"></i></div><div class="tag">${esc(meta(a).name)} · ${tag}</div></div>`;}).join("")||'<div style="font-size:12px;color:var(--muted)">No holdings yet.</div>';
   if(!scored.length){$("oppMeans").textContent="Add holdings to score them.";return;}
   const best=scored.slice().sort((a,b)=>c.oppScores[b]-c.oppScores[a])[0],worst=scored.slice().sort((a,b)=>c.oppScores[a]-c.oppScores[b])[0];
-  $("oppMeans").textContent=`Most attractive to add today: ${best} (${c.oppScores[best]}). Least: ${worst} (${c.oppScores[worst]}). Scores reward being below target and buying into fear, and penalise concentration — especially single stocks.`;
+  $("oppMeans").textContent=`Most attractive to add today: ${best} (${c.oppScores[best]}). Least: ${worst} (${c.oppScores[worst]}). Scores reward buying into fear and recent drawdown, and penalise concentration \u2014 especially single stocks. Tactical context only: they do not change the Monthly Plan.`;
 }
 
 function renderPortfolio(c){
   const src=S.source==="etoro"?"Synced from eToro (read-only)":S.source==="etoro-fail"?"eToro sync unavailable — using manual/last known data.":(S.market.live?"Live prices via backend/Finnhub.":"Manual entry.");
   $("pfNote").textContent=c.invested>0?src:"No holdings yet — tap Edit portfolio.";
   let held=c.list.filter(a=>c.rows[a].val>0);if(!held.length)held=c.list;
-  $("pfBody").innerHTML=held.map(a=>{const r=c.rows[a];return `<tr><td><div class="tkr"><span class="badge" style="background:${colorFor(a)}">${a}</span>${esc(r.name)}</div></td><td>${r.val?dual(r.val):'—'}</td><td class="${plClass(r.pl)}">${(r.cost||r.pl)?(r.pl>=0?'+':'')+usd(r.pl):'—'}</td><td>${r.nowPc.toFixed(1)}%</td><td style="color:var(--muted)">${r.tgtPc}%</td></tr>`;}).join("")||'<tr><td colspan="5" style="color:var(--muted)">No holdings</td></tr>';
+  $("pfBody").innerHTML=held.map(a=>{const r=c.rows[a];return `<tr><td><div class="tkr"><span class="badge" style="background:${colorFor(a)}">${a}</span>${esc(r.name)}</div></td><td>${r.val?dual(r.val):'—'}</td><td class="${plClass(r.pl)}">${(r.cost||r.pl)?(r.pl>=0?'+':'')+usd(r.pl):'—'}</td><td>${r.nowPc.toFixed(1)}%</td></tr>`;}).join("")||'<tr><td colspan="4" style="color:var(--muted)">No holdings</td></tr>';
   const segs=c.list.map(a=>({label:a,value:c.rows[a].val,color:colorFor(a)})).concat([{label:"Cash",value:c.cash,color:CASH_COLOR}]);
   $("portfolioPie").innerHTML=donut(segs,{c1:c.invested>0?usd(c.pot):"",c2:c.invested>0?"value":""});
   $("pieLegend").innerHTML=segs.filter(s=>s.value>0).map(s=>`<div class="lg"><span class="sw" style="background:${s.color}"></span><span class="nm">${s.label}</span><span class="pc">${c.pot>0?(s.value/c.pot*100).toFixed(1):0}%</span></div>`).join("")||'<span style="font-size:12px;color:var(--muted)">No holdings yet.</span>';
-  $("allocWrap").innerHTML=[...c.list,"CASH"].map(a=>{const now=a==="CASH"?c.cashPc:c.rows[a].nowPc,tgt=a==="CASH"?c.cashTgt:c.rows[a].tgtPc,max=Math.max(50,now+8,tgt+8),col=a==="CASH"?CASH_COLOR:colorFor(a);
-    return `<div class="row"><div class="lab"><span>${a==="CASH"?"Cash":a}</span><span class="pc">${now.toFixed(1)}% / ${tgt}% target</span></div><div class="track"><div class="fill" style="width:${clamp(now/max*100,0,100)}%;background:${col}"></div><div class="tgt" style="left:${clamp(tgt/max*100,0,100)}%"></div></div></div>`;}).join("");
-  let worst=null;c.list.forEach(a=>{if(!worst||Math.abs(c.rows[a].drift)>Math.abs(c.rows[worst].drift))worst=a;});
-  $("pfMeans").innerHTML=c.invested>0?`Total P/L ${dual(c.totPl)}. Biggest gap from plan: ${worst} (${c.rows[worst].drift>0?"over":"under"} by ${Math.abs(c.rows[worst].drift).toFixed(1)}%). Fix with new cash, not by selling.${c.concPc>10?` Concentration watch: ${c.topStock} at ${c.concPc.toFixed(0)}%.`:""}`:"Enter holdings to get a real read.";
+  // V2: descriptive composition only. No target marker, no drift, no over/underweight.
+  $("allocWrap").innerHTML=[...c.list,"CASH"].map(a=>{const now=a==="CASH"?c.cashPc:c.rows[a].nowPc,max=Math.max(50,now+8),col=a==="CASH"?CASH_COLOR:colorFor(a);
+    return `<div class="row"><div class="lab"><span>${a==="CASH"?"Cash":a}</span><span class="pc">${now.toFixed(1)}%</span></div><div class="track"><div class="fill" style="width:${clamp(now/max*100,0,100)}%;background:${col}"></div></div></div>`;}).join("");
+  $("pfMeans").innerHTML=c.invested>0?`Total P/L ${dual(c.totPl)}. Composition above is descriptive \u2014 there are no target weights, so nothing here is over- or underweight.${c.concPc>10?` Concentration watch: ${c.topStock} at ${c.concPc.toFixed(0)}%.`:""}${c.isacReview?` <span style="color:var(--watch);font-weight:700">REVIEW TRIGGER:</span> ${esc(c.policy.destination)} is ${c.isacPc.toFixed(1)}% of invested equity, approaching the ~${c.policy.reviewTriggerPc}% review point. This is a flag to review \u2014 not an instruction to sell, rebalance, or redirect the Monthly Plan.`:""}`:"Enter holdings to get a real read.";
 }
 
 function renderDryPowder(c){
-  const col={Low:C.act,Medium:C.watch,High:C.risk,Severe:C.risk}[c.cashDrag];
-  $("cashMeter").innerHTML=gaugeSemi(c.cashPc,40,col);
-  $("cashMeterLabel").innerHTML=`${c.cashPc.toFixed(0)}% · <span style="color:${col}">${c.cashDrag}</span>`;
-  $("dpCash").innerHTML=dual(c.cash);$("dpTarget").innerHTML=dual(c.cashTgtDollar);
-  $("dpDeployable").innerHTML=dual(c.deployable);$("dpDrag").textContent=c.cashDrag;
+  const BL={plan:"Monthly Plan",discretionary:"Broker Cash",drypowder:"Opportunity Reserve"};
+  const label=BL[c.bucket]||"this capital";
+  // Cash meter is now purely descriptive — no cash target, no cash drag band (Ruling 4).
+  $("cashMeter").innerHTML=gaugeSemi(c.cashPc,40,C.data);
+  $("cashMeterLabel").innerHTML=`${c.cashPc.toFixed(0)}% broker cash`;
+  $("dpPlan").innerHTML=`${esc(bhdLabel(c.policy.monthlyPlanBhd))} <span class="bhd">/ ${usd(c.planUsd)}</span>`;
+  $("dpCash").innerHTML=dual(c.cash);
+  $("dpOppRes").innerHTML=`${esc(bhdLabel(+S.opportunityReserve||0))} <span class="bhd">/ ${usd(c.oppReserveUsd)}</span>`;
+  $("dpDeployable").innerHTML=dual(c.deployable);
   $("dpDot").style.background=c.deployNow>0?C.act:C.hold;
   const rec=$("dpRec");
-  if(c.deployable<=0){rec.className="dp-rec wait";$("dpRecB").textContent="Nothing to deploy — keep cash steady";$("deploySplit").innerHTML="";$("dpMeans").textContent="Cash is at/below target. Don't raise extra cash hoping to time a dip.";return;}
+  $("deploySplit").innerHTML="";   // V2: no prescriptive split, in any state
+
+  // Monthly Plan is a POLICY COMMITMENT, not a slice of broker cash. Zero broker cash can
+  // never make it read as "nothing to deploy" — only a genuine gate can hold it.
+  if(c.deployable<=0){
+    rec.className="dp-rec wait";
+    $("dpRecB").textContent= c.bucket==="discretionary"
+      ? "No broker cash above the Broker Cash Floor" : "Opportunity Reserve is empty";
+    $("dpMeans").innerHTML= c.bucket==="discretionary"
+      ? `Broker cash is at or below your Broker Cash Floor (${dual(c.reserve)}), which you set aside deliberately. Nothing discretionary to deploy \u2014 don't raise cash hoping to time a dip.`
+      : `Opportunity Reserve is ${esc(bhdLabel(+S.opportunityReserve||0))}. This is the only route by which external capital becomes deployable, and you fund it manually. Savings and Treasury Bills are ring-fenced and never flow here automatically.`;
+    return;
+  }
   if(c.gateBlock){
     rec.className="dp-rec wait";
-    $("dpRecB").textContent=c.conviction.level==="BLACK"?"Hold — inputs unreliable, no allocation":"Hold — conviction too low to deploy";
-    $("deploySplit").innerHTML="";
-    $("dpMeans").innerHTML=`You have ${dual(c.excessDollar)} above target, but the <b style="color:var(--risk)">conviction gate is ${c.conviction.level}</b> — the suggested split is held back until the flagged inputs clear. This isn't "don't ever deploy"; it's "don't deploy <i>blind</i> right now."`;
+    if(c.gateBlind){
+      // Blindness holds DISCRETIONARY capital only. The Monthly Plan is a written-policy
+      // commitment and rides through low visibility (that is the whole point of the split),
+      // so the headline must not tell the user to hold it while the text says it still runs.
+      if(c.bucket==="plan"){
+        rec.className="dp-rec";
+        $("dpRecB").innerHTML=`${esc(bhdLabel(c.policy.monthlyPlanBhd))} \u2192 ${esc(c.policy.destination)} \u00b7 ${esc(c.policy.status)}`;
+        $("dpMeans").innerHTML=`Your Monthly Plan still runs. <span style="color:var(--watch);font-weight:700">System visibility is low</span> (failed seats / feeds), which holds <span style="font-weight:700">discretionary</span> capital \u2014 Broker Cash and the Opportunity Reserve \u2014 but not written policy. This is a visibility flag, not market danger. Re-run once the committee and feeds recover.`;
+        return;
+      }
+      $("dpRecB").textContent="Hold this cash — system visibility is low";
+      $("dpMeans").innerHTML=`${label} is held while <span style="color:var(--watch);font-weight:700">system visibility is low</span> (failed seats / feeds) \u2014 not because the market is dangerous. Your Monthly Plan (${esc(bhdLabel(c.policy.monthlyPlanBhd))} \u2192 ${esc(c.policy.destination)}) still runs. Re-run once the committee and feeds recover.`;
+    } else {
+      $("dpRecB").textContent=c.conviction.marketRisk==="BLACK"?"Hold — inputs unreliable, no allocation":"Hold — market risk too high to deploy";
+      $("dpMeans").innerHTML=`${label} is held because <span style="color:var(--risk);font-weight:700">market risk is ${(c.conviction.marketRisk||"").toLowerCase()}</span>. Genuine market danger caps <span style="font-weight:700">every</span> bucket, including the Monthly Plan. This isn't "don't ever deploy"; it's "don't deploy into a flagged market right now."`;
+    }
+    return;
+  }
+  if(c.bucket==="plan"){
+    rec.className="dp-rec";
+    $("dpRecB").innerHTML=`${esc(bhdLabel(c.policy.monthlyPlanBhd))} \u2192 ${esc(c.policy.destination)} \u00b7 ${esc(c.policy.status)}`;
+    $("dpMeans").innerHTML=`This is your written Investment Policy, not a calculated suggestion. The destination is fixed \u2014 tactical scores and committee commentary cannot redirect it. Only a genuine market-risk gate can hold it.${c.waitForEvent?` A high-impact event is close; you may prefer to let it land first.`:""}`;
     return;
   }
   if(c.waitForEvent){rec.className="dp-rec wait";$("dpRecB").textContent=`Deploy ${usd(c.deployNow)} AFTER ${c.ev&&c.ev.impact==="high"&&c.ev.days<=2?c.ev.name:"the data"}`;}
   else if(c.gateSmall){rec.className="dp-rec";$("dpRecB").textContent=`Deploy a small tranche only (~${usd(Math.min(c.deployNow,250))})`;}
-  else{rec.className="dp-rec";$("dpRecB").textContent=`Deploy ${usd(c.deployNow)} now`;}
-  $("deploySplit").innerHTML=c.split.map(s=>{const w=s.amt/c.deployNow*100;return `<div class="ds"><span class="badge" style="background:${colorFor(s.asset)}">${s.asset}</span><div class="bar"><i style="width:${w}%"></i></div><span class="amt">${dual(s.amt)}</span></div>`;}).join("");
-  $("dpMeans").innerHTML=`${dual(c.excessDollar)} above your ${c.cashTgt}% cash target. ${c.gateSmall?`Some inputs are soft (conviction ${c.conviction.level}) — keep it to a small tranche today, not the full ${usd(c.deployNow)}.`:c.waitForEvent?`A high-impact event is close — deploy ${usd(c.deployNow)} <b>after</b> it lands, keep the rest as a second tranche.`:`Put ${usd(c.deployNow)} to work now, hold the rest for a second tranche. Buy what's furthest below target.`}`;
+  else{rec.className="dp-rec";$("dpRecB").textContent=`Deploy up to ${usd(c.deployNow)} now`;}
+  $("dpMeans").innerHTML=`${dual(c.deployable)} available in ${label}. ${c.gateSmall?`Some inputs are soft (conviction ${c.conviction.level}) \u2014 keep it to a small tranche today, not the full ${usd(c.deployNow)}.`:c.waitForEvent?`A high-impact event is close \u2014 deploy <span style="font-weight:700">after</span> it lands, keep the rest as a second tranche.`:`Consider a first tranche of ${usd(c.deployNow)} and hold the rest for a second. No allocation is prescribed \u2014 tactical scores are context only.`}`;
 }
 
 function renderRadar(){
@@ -1160,13 +1315,13 @@ function evaluateAlerts(c){
   const A=[],set=S.alertSettings,now=Date.now(),prev=prevDaySnap();
   const add=(key,sev,title,why,action)=>A.push({key,sev,title,why,action});
   if(set.cashDrag){
-    if(c.cashPc>c.cashTgt+1){const over=c.cashPc-c.cashTgt;add("cash_above_target",over>8?"medium":"low",`Cash above target (${c.cashPc.toFixed(0)}% vs ${c.cashTgt}%)`,"Idle cash is a quiet drag on long-term returns.",`Deploy ${usd(c.deployNow||0)} into what's below target, in tranches.`);}
+    // V2: the "cash above target" alert is REMOVED. There is no cash target to be above.
     if(c.cashPc>20){ if(!S.alertState.cashHighSince)S.alertState.cashHighSince=now; const days=(now-S.alertState.cashHighSince)/86400000; if(days>=7)add("cash_high_7d","high",`Cash above 20% for ${Math.floor(days)} days`,"You've been sitting out of the market for over a week.","Commit to a deployment schedule — a fixed weekly tranche beats waiting for a perfect day.");}
     else S.alertState.cashHighSince=null;
   }
   if(set.deploy){
     const ready=c.deployNow>0&&!c.waitForEvent&&c.light==="green";
-    if(S.alertState.prevDeployReady!==undefined&&!S.alertState.prevDeployReady&&ready)add("wait_to_deploy","medium","Signal changed: WAIT → DEPLOY","Conditions cleared — the system now favours putting cash to work.",`Deploy ${usd(c.deployNow)} per the suggested split. Don't hold out for a perfect entry.`);
+    if(S.alertState.prevDeployReady!==undefined&&!S.alertState.prevDeployReady&&ready)add("wait_to_deploy","medium","Signal changed: WAIT → DEPLOY","Conditions cleared — the system now favours putting cash to work.",`Up to ${usd(c.deployNow)} is available in this bucket. Don't hold out for a perfect entry.`);
     S.alertState.prevDeployReady=ready;
     if(c.opportunity>75)add("opp_above_75","low",`Opportunity score high (${c.opportunity}/100)`,"Setup favours buyers — fear elevated and/or you're underdeployed.","A good window to deploy a tranche on plan.");
   }
@@ -1181,14 +1336,18 @@ function evaluateAlerts(c){
       if((isCPI||isFed)&&h<=24)add("event_"+e.name,"high",`${e.name} within 24h`,"A high-impact event can move the whole market.","Hold your next tranche until after it lands — it removes a coin-flip from the entry.");
       else if(isErn&&h<=48)add("event_"+e.name,"medium",`${e.name} within 48h`,"Earnings can swing a single-stock position sharply.","Don't add to that name right before the print.");});
   }
-  if(set.drift){
-    c.list.forEach(a=>{const dr=c.rows[a].drift;if(Math.abs(dr)>5){const under=dr<0,voo=a==="VOO"&&under;
-      add("drift_"+a,voo?"medium":"low",`${a} ${under?"underweight":"overweight"} by ${Math.abs(dr).toFixed(1)}%`,voo?"Your core holding is below target — the base of the portfolio is light.":"Allocation has drifted from your plan.",under?`Top up ${a} with new cash toward its ${c.rows[a].tgtPc}% target.`:"Let it ride or steer new cash elsewhere; don't sell just to rebalance.");}});
+  // V2: per-asset drift / over- & underweight alerts are REMOVED. There are no target weights,
+  // so nothing can be "off target". The ONE surviving composition signal is the ISAC review
+  // trigger below — a flag to review, never an instruction to rebalance or sell.
+  if(set.drift && c.isacReview){
+    add("isac_review","low",`Review trigger: ${c.policy.destination} at ${c.isacPc.toFixed(1)}% of invested equity`,
+      `Your policy destination is approaching ~${c.policy.reviewTriggerPc}% of invested equity. That is a point to consciously review, not a problem in itself.`,
+      "Review whether you still want the Monthly Plan pointed here. Do not sell or rebalance on this flag alone \u2014 it changes nothing automatically.");
   }
   if(set.behaviour){
     const checks=((S.behaviour&&S.behaviour.refreshLog)||[]).filter(t=>t>now-86400000).length;
     if(checks>12)add("over_refresh","low",`You've refreshed ${checks}× in 24h`,"Frequent checking rarely changes a long-term call and adds stress.","Close the app. Nothing here needs action every hour.");
-    const recent=(S.history||[]).slice(-6),told=recent.filter(s=>s.suggestedDeploy>0&&s.cashPc>c.cashTgt+3);
+    const recent=(S.history||[]).slice(-6),told=recent.filter(s=>s.suggestedDeploy>0);
     if(recent.length>=4&&told.length>=3)add("cash_while_deploy","medium","Repeatedly told to deploy, cash still high","Across recent checks the system favoured deploying, but cash hasn't moved.","Deploy a tranche now or schedule one. Waiting for the perfect day is costing you.");
   }
   return A;
@@ -1236,9 +1395,17 @@ function recordSnapshot(c,trigger){
   persist(); syncHistory("snapshots",snap);
 }
 function recommendedActionText(c){
-  if(c.deployable<=0)return "Hold — cash at/below target, nothing to deploy.";
-  if(c.waitForEvent)return `Wait, then deploy ${usd(c.deployNow)}${c.ev?" after "+c.ev.name:""}.`;
-  if(c.deployNow>0)return `Deploy ${usd(c.deployNow)}: `+c.split.map(s=>usd(s.amt)+" "+s.asset).join(", ")+".";
+  // V2: no split to enumerate and no cash target to be "at/below". Records the resolved
+  // position for the selected bucket, and names the policy destination for the Monthly Plan.
+  const BL={plan:"Monthly Plan",discretionary:"Broker Cash",drypowder:"Opportunity Reserve"};
+  const label=BL[c.bucket]||"this capital";
+  if(c.gateBlock)return c.gateBlind
+    ? `Hold ${label} — low visibility (Monthly Plan unaffected).`
+    : `Hold ${label} — market risk ${(c.conviction&&c.conviction.marketRisk||"").toLowerCase()}.`;
+  if(c.bucket==="plan")return `${bhdLabel(c.policy.monthlyPlanBhd)} \u2192 ${c.policy.destination} \u00b7 ${c.policy.status}.`;
+  if(c.deployable<=0)return `Nothing available in ${label}.`;
+  if(c.waitForEvent)return `Wait, then deploy up to ${usd(c.deployNow)} from ${label}${c.ev?" after "+c.ev.name:""}.`;
+  if(c.deployNow>0)return `Up to ${usd(c.deployNow)} available from ${label}.`;
   return "Stay on plan.";
 }
 function addJournalEntry(c){
@@ -1253,24 +1420,27 @@ function updateJournalVerdict(id){const e=S.journal.find(x=>x.id===id);if(e){e.a
 function syncHistory(type,entry){ if(!S.backendUrl)return; try{fetch(S.backendUrl.replace(/\/+$/,"")+"/api/history",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type,entry})}).catch(()=>{}); }catch(_){}}
 
 function renderJournal(){
-  const j=(S.journal||[]).slice().reverse();
+  // One malformed or null entry must never blank the dashboard. Filter once, here, so the
+  // rendering below AND the behaviour stats further down both work from clean data.
+  const j=(S.journal||[]).filter(e=>e&&e.ts).slice().reverse();
   const wrap=$("journalList");
   if(!j.length){wrap.innerHTML='<div style="font-size:12.5px;color:var(--muted)">No decisions logged yet. Run Deep Triggers and an entry is saved here automatically.</div>';$("journalPattern").textContent="";return;}
   wrap.innerHTML=j.slice(0,8).map(e=>{const d=new Date(e.ts),col=VERDICT_COLOR[e.aiVerdict]||C.muted;
+    const K=e.conditions||null;   // guard: never let one malformed entry blank the whole page
     return `<div class="jrow"><div class="jhead"><span class="jdate">${d.toLocaleDateString()} ${d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</span><span class="jverdict" style="color:${col}">${esc(e.aiVerdict||'—')}</span></div>
-      <div class="jcond">danger ${e.conditions.danger} · opp ${e.conditions.opportunity} · cash ${e.conditions.cashPc}%${e.conditions.vix!=null?" · VIX "+e.conditions.vix:""}</div>
-      <div class="jline"><span class="jlab">Recommended</span> ${esc(e.recommendedAction)}</div>
+      <div class="jcond">${K?`danger ${K.danger} \u00b7 opp ${K.opportunity} \u00b7 cash ${K.cashPc}%${K.vix!=null?" \u00b7 VIX "+K.vix:""}`:"conditions not recorded for this entry"}</div>
+      <div class="jline"><span class="jlab">Recommended</span> ${esc(e.recommendedAction||"\u2014")}</div>
       <div class="jline"><span class="jlab">You did</span> ${e.actualAction?esc(e.actualAction):'<span style="color:var(--muted-2)">not logged</span>'}</div>
       ${e.outcome?`<div class="jline"><span class="jlab">Outcome</span> ${esc(e.outcome)}</div>`:""}
       ${e.notes?`<div class="jline"><span class="jlab">Notes</span> ${esc(e.notes)}</div>`:""}
       <button class="btn sm jedit" data-id="${e.id}" style="border:1px solid var(--line);margin-top:7px">Log action / outcome</button></div>`;}).join("");
   // simple behavioural pattern read
-  const logged=j.filter(e=>e.actualAction);
+  const logged=j.filter(e=>e.actualAction);   // j is already null-filtered above
   let pat="";
   if(logged.length>=3){
     const waited=logged.filter(e=>/wait|hold|nothing|skip/i.test(e.actualAction)).length;
     const recDeploy=logged.filter(e=>/deploy/i.test(e.recommendedAction)).length;
-    const ignored=logged.filter(e=>/deploy/i.test(e.recommendedAction)&&/wait|hold|nothing|skip/i.test(e.actualAction)).length;
+    const ignored=logged.filter(e=>/deploy/i.test(e.recommendedAction||"")&&/wait|hold|nothing|skip/i.test(e.actualAction)).length;
     const avgCash=Math.round(j.reduce((s,e)=>s+(e.conditions.cashPc||0),0)/j.length);
     if(recDeploy&&ignored/recDeploy>0.5)pat=`Pattern: you've skipped deployment on ${ignored} of ${recDeploy} occasions it was recommended — you may be waiting too long.`;
     else if(avgCash>20)pat=`Pattern: your cash has averaged ${avgCash}% across logged decisions — you tend to hold a lot of dry powder.`;
@@ -1292,10 +1462,10 @@ function renderCommittee(){
     $("modelLog").innerHTML='';return;
   }
   const verdict= synth?synth.verdict:(local&&local.verdict), consensus= synth?synth.consensus:(local&&local.consensus);
-  if(verdict){const col=VERDICT_COLOR[verdict]||C.muted;$("committeeVerdict").textContent=verdict;$("committeeVerdict").style.color=col;
+  if(verdict){const res=synth&&synth.resolution;const RESC={'green':C.act,'amber-green':'#9CE86A','amber':C.watch,'amber-red':'#FF8A3D','red':C.risk,'grey':C.muted};let col=(res&&res.confidence)?(RESC[res.confidence.colour]||C.muted):(VERDICT_COLOR[verdict]||C.muted);const _gate=LAST_GATE;const _mr=(_gate&&_gate.marketRisk)||'GREEN';const _bl=(_gate&&_gate.blindness&&_gate.blindness.level)||'GREEN';const _bucket=(res&&res.cashContext&&res.cashContext.bucket)||S.cashBucket||'plan';const _blab=({plan:'Monthly Plan',discretionary:'Broker Cash',drypowder:'Opportunity Reserve'})[_bucket]||'this cash';let _gateAct=null,_gateNote="";if(_mr==="RED"||_mr==="BLACK"){col=C.risk;_gateAct=_mr==="BLACK"?"WAIT — NO ALLOCATION":"WATCH ONLY";var _rr=(_gate.reasons||[]).filter(function(r){return r.channel==="risk"&&r.sev==="red";})[0];_gateNote="Market risk is high — held to "+_gateAct+" across all buckets"+(_rr?": "+_rr.txt.toLowerCase():"")+".";}else{if(_mr==="YELLOW"){if(col===C.act||col==="#9CE86A")col=C.watch;if(res&&String(res.action).toLowerCase()==="deploy"){if(_bucket==="plan"){_gateAct="ON POLICY";_gateNote="Market risk is moderate, but the Monthly Plan is a written commitment, not a discretionary amount \u2014 it is not trimmed. Only genuine market danger holds it.";}else{_gateAct="DEPLOY SMALL";_gateNote="Market risk is moderate \u2014 "+_blab+" capped to a small tranche.";}}}if(_bl==="RED"){if(col===C.act||col==="#9CE86A")col=C.watch;var _br=(_gate.reasons||[]).filter(function(r){return r.channel==="blindness"&&r.sev==="red";})[0];if(_bucket!=="plan"){_gateAct="WATCH ONLY";_gateNote="System visibility is low — "+_blab+" held until feeds and committee recover"+(_br?" ("+_br.txt.toLowerCase()+")":"")+". Monthly Plan would still deploy.";}else if(res&&String(res.action).toLowerCase()==="deploy"){var _vis="System visibility is low, but the Monthly Plan continues \u2014 DCA is the right default when the committee cannot see clearly.";_gateNote=_gateNote?_gateNote+" "+_vis:_vis;if(!_gateAct)_gateAct="ON POLICY";}}}$("committeeVerdict").textContent=verdict;$("committeeVerdict").style.color=col;
     $("committeeMeta").textContent= synth?`final call · agreement ${consensus}%${synth.seatsResponded!=null?` · ${synth.seatsResponded}/${synth.seatsConfigured} seats`:""}${synth.by?" · chair "+synth.by:""}`:`${local.count}/4 logged · consensus ${consensus}%`;
-    $("consensusBar").style.width=(consensus||0)+"%";$("consensusBar").style.background=consensus>=70?C.act:consensus>=50?C.watch:C.risk;
-    $("lowConfWrap").innerHTML=(consensus!=null&&consensus<50)?'<div class="lowconf"><b>Low agreement.</b> The models genuinely disagree — the final call is a judged decision, not a vote. Deploy smaller or wait for the next data point.</div>':'';}
+    $("consensusBar").style.width=(consensus||0)+"%";$("consensusBar").style.background=col;
+    var _act=_gateAct||(res&&res.action?String(res.action).toUpperCase():'');var _msg='';if(_gateNote){_msg='<div class="lowconf"><b>'+esc(_gateNote)+'</b> Final action: <b>'+esc(_act)+'</b>.'+((res&&res.confidence&&(res.confidence.lowConfidence||res.confidence.cappedByParticipation))?' Committee confidence was already low ('+((res.confidence.participation&&res.confidence.participation.responded!=null)?(res.confidence.participation.responded+' of '+res.confidence.participation.configured+' seats'):'degraded run')+').':'')+'</div>';}else if(res&&res.confidence&&(res.confidence.lowConfidence||res.confidence.cappedByParticipation)){var p=res.confidence.participation||{};_msg='<div class="lowconf"><b>Low confidence — '+(p.responded!=null?('only '+p.responded+' of '+p.configured+' seats responded'):'degraded run')+'.</b> Confidence is capped by participation, not just agreement among the seats that answered. Resolver action: <b>'+esc(_act)+'</b>'+(res.bucketAware?'':' (set a cash bucket for a deploy/wait call).')+'</div>';}else if(res){_msg='';}else{_msg=(consensus!=null&&consensus<50)?'<div class="lowconf"><b>Low agreement.</b> The models genuinely disagree — the final call is a judged decision, not a vote. Deploy smaller or wait for the next data point.</div>':'';}$("lowConfWrap").innerHTML=_msg;}
   else{$("committeeVerdict").textContent="NOT RUN";$("committeeVerdict").style.color=C.muted;$("committeeMeta").textContent="Run Deep Triggers for a committee verdict";$("consensusBar").style.width="0%";$("lowConfWrap").innerHTML='';}
   if(S.backendUrl){
     // Backend committee is active — the real seats (PM / Risk / Macro / Devil) come from the backend,
@@ -1310,16 +1480,23 @@ function renderCommittee(){
 function renderGuide(c){
   $("guideStamp").textContent=c.lightAct;
   const doItems=[];let doMain;
-  if(c.gateBlock){doMain=c.conviction.level==="BLACK"?"WAIT — NO ALLOCATION":"WATCH ONLY";}
+  if(c.gateBlock){doMain=c.gateBlind?"HOLD — LOW VISIBILITY":(c.conviction.marketRisk==="BLACK"?"WAIT — NO ALLOCATION":"WATCH ONLY");}
   else if(c.light==="red"){doMain=c.status==="REDUCE RISK"?"WAIT — DO NOT ADD RISK":"WAIT TODAY";}
   else if(c.light==="amber"){doMain=c.gateSmall?"DEPLOY SMALL ONLY":(c.waitForEvent&&c.ev?("WAIT FOR "+c.ev.name.toUpperCase()):"DEPLOY GRADUALLY");}
   else doMain=c.deployNow>0?"DEPLOY NOW":"STAY ON PLAN";
   doItems.push("Do not sell anything today.");
   if(c.gateBlock){
-    const gr=c.conviction.reasons.filter(r=>r.sev==="red").slice(0,3);
-    doItems.push("No deployment today — conviction is "+c.conviction.level+":");
-    gr.forEach(r=>doItems.push("  • "+r.txt));
-    doItems.push("Re-run once these clear (fresh data + committee), then deploy.");
+    if(c.gateBlind){
+      const gb=c.conviction.reasons.filter(r=>r.channel==="blindness").slice(0,3);
+      doItems.push("Discretionary cash held — system visibility is low (not market danger):");
+      gb.forEach(r=>doItems.push("  • "+r.txt));
+      doItems.push("Monthly Plan DCA still runs. Re-run once the committee and feeds recover.");
+    } else {
+      const gr=c.conviction.reasons.filter(r=>r.channel==="risk"&&r.sev==="red").slice(0,3);
+      doItems.push("No deployment today — market risk is "+(c.conviction.marketRisk||"")+":");
+      gr.forEach(r=>doItems.push("  • "+r.txt));
+      doItems.push("Re-run once conditions clear, then deploy.");
+    }
   }
   else if(c.gateSmall&&c.deployNow>0){doItems.push("Inputs are soft — deploy a small tranche only (~"+usd(Math.min(c.deployNow,250))+"), not the full "+usd(c.deployNow)+".");}
   else if(c.deployNow>0&&c.light!=="red"){if(c.waitForEvent)doItems.push("After the data lands, deploy "+usd(c.deployNow)+":");c.split.slice(0,4).forEach(s=>doItems.push((c.waitForEvent?"  • ":"Buy ")+usd(s.amt)+" "+s.asset+" ("+bhd(s.amt)+")"));}
@@ -1330,8 +1507,7 @@ function renderGuide(c){
   dont.push("Panic sell on a down day.","Wait for the 'perfect' bottom.","Keep refreshing every 10 minutes.","Rip up the plan over one CPI print.");
   const next=c.ev?`After ${c.ev.name} (${c.ev.days}d).`:"Tomorrow, 5:00pm Bahrain time.";
   let why;
-  if(c.cashDrag==="High"||c.cashDrag==="Severe")why=`Your cash is high (${c.cashPc.toFixed(0)}%) and dry powder works best deployed steadily, not hoarded.`;
-  else if(c.status==="REDUCE RISK")why="Risk is high or one position is too big. Protecting the portfolio beats chasing more.";
+  if(c.status==="REDUCE RISK")why="Risk is high or one position is too big. Protecting the portfolio beats chasing more.";
   else if(c.waitForEvent)why="A high-impact event is hours away. Waiting for the print removes a coin-flip from your entry.";
   else why="Conditions are normal. Steady deployment beats trying to time the exact bottom.";
   $("guideBody").innerHTML=`
@@ -1345,6 +1521,30 @@ function renderConfidence(){const pill=$("confPill");let level,cls;if(!S.lastRef
 /* ───────── data source / confidence panel ───────── */
 const STAT_COL={live:C.act,active:C.act,manual:C.watch,stale:C.watch,"sync failed":C.risk,missing:C.hold,"not connected":C.hold,off:C.hold,none:C.hold};
 function statColor(s){return STAT_COL[s]||C.hold;}
+function renderBuildChip(){
+  const el=$("buildChip"); if(!el)return;
+  const api=API_VERSION_SEEN;
+  if(!S.backendUrl){ el.textContent="FE "+FE_VERSION+" · API —"; el.style.color=C.mut2;
+    el.title="No backend configured, so the API build is unknown."; return; }
+  if(api==null){ el.textContent="FE "+FE_VERSION+" · API ?"; el.style.color=C.watch;
+    el.title="Backend didn't report a build. It may be an older deployment predating build identification."; return; }
+  const drift=api!==EXPECTED_API;
+  el.textContent="FE "+FE_VERSION+" · API "+api;
+  el.style.color=drift?C.watch:(C.mut2);
+  el.title=drift
+    ? "DEPLOYMENT DRIFT: this page expects API "+EXPECTED_API+" but the backend reports "+api+". One of the two is a stale deployment."
+    : "Frontend and backend builds match.";
+}
+async function probeApiVersion(){
+  if(!S.backendUrl){ API_VERSION_SEEN=null; renderBuildChip(); return; }
+  try{
+    const r=await fetch(S.backendUrl.replace(/\/+$/,"")+"/api/health");
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    const j=await r.json();
+    API_VERSION_SEEN=j.version||null;      // absent on pre-V2 backends -> renders "API ?"
+  }catch(e){ API_VERSION_SEEN=null; }
+  renderBuildChip();
+}
 function isStale(){return S.lastRefresh && (Date.now()-S.lastRefresh)>4*3600000;}
 function renderSourcePanel(){
   const stale=isStale(),fresh=S.lastRefresh?("updated "+timeAgo(S.lastRefresh)):"never refreshed";
@@ -1436,7 +1636,6 @@ function applyEtoro(j){
   if(j.availableCashUsd!=null)S.cash=+j.availableCashUsd;
   S.etoroConnected=true;S.etoroDayPl=j.todayPlUsd!=null?+j.todayPlUsd:null;S.etoroTotalPl=j.totalPlUsd!=null?+j.totalPlUsd:null;
   S.etoroDayPlEst=!!j.todayPlEstimated;S.etoroDayPlPct=j.todayPlPct!=null?+j.todayPlPct:null;S.etoroDayPlPartial=!!j.todayPlPartial;
-  Object.keys(S.holdings).forEach(s=>{if(S.targets[s]==null)S.targets[s]=0;});
   S.source="etoro";
 }
 async function refreshLive(){
@@ -1477,11 +1676,19 @@ async function refreshLive(){
 function buildPacket(c){
   const L=[];
   L.push("MARKET BRIEFING PACKET — "+new Date().toISOString());
-  L.push("INVESTOR: Andrew Collins, Bahrain. Long-term ETF/stock investor on eToro. Wants blunt, decision-led answers. RULES: no auto-trading, leverage, margin, options, shorting, crypto. Reserve kept aside: "+usd(+S.reserve||0)+". Portfolio source: "+(S.source==="etoro"?"eToro read-only sync":"manual")+".");
+  L.push("INVESTOR: Andrew Collins, Bahrain. Long-term ETF/stock investor on eToro. Wants blunt, decision-led answers. RULES: no auto-trading, leverage, margin, options, shorting, crypto. Broker cash floor (withheld from deployment): "+usd(+S.reserve||0)+". Portfolio source: "+(S.source==="etoro"?"eToro read-only sync":"manual")+".");
   L.push("");
-  L.push("PORTFOLIO "+usd(c.pot)+" | cash "+usd(c.cash)+" ("+c.cashPc.toFixed(1)+"%) | dry powder "+usd(c.deployable)+" | total P/L "+usd(c.totPl));
-  c.list.forEach(a=>{const r=c.rows[a];L.push(`  ${a} (${meta(a).label}): ${usd(r.val)} (${r.nowPc.toFixed(1)}%, target ${r.tgtPc}%, opp ${c.oppScores[a]!=null?c.oppScores[a]:"n/a — copy trade"})`);});
-  L.push("  CASH: "+c.cashPc.toFixed(1)+"% (target "+c.cashTgt+"%) — drag "+c.cashDrag);
+  L.push("WRITTEN INVESTMENT POLICY (authoritative — this is not yours to optimise):");
+  L.push("  Monthly Plan: BHD500 \u2192 ISAC.L. Status: ON POLICY. The destination is fixed by written policy, not by scoring.");
+  L.push("  There are NO target allocation percentages. Current composition below is DESCRIPTIVE only.");
+  L.push("  Do NOT recommend rebalancing, selling, or redirecting the Monthly Plan because weights differ from anything.");
+  L.push("  Your job is to identify genuine EXCEPTIONS to the policy \u2014 real market risk \u2014 not to propose a better portfolio.");
+  L.push("");
+  L.push("POSITION "+usd(c.pot)+" | broker cash "+usd(c.cash)+" ("+c.cashPc.toFixed(1)+"%) | total P/L "+usd(c.totPl));
+  L.push("CAPITAL IN SCOPE THIS RUN: "+({plan:"Monthly Plan",discretionary:"Broker Cash",drypowder:"Opportunity Reserve"}[c.bucket]||c.bucket)+" \u2014 "+usd(c.deployable)+" deployable.");
+  L.push("RING-FENCED / NON-DEPLOYABLE: the user also holds external Savings and Treasury Bills. Their values are deliberately NOT given to you. They are not available capital and must never appear in any recommendation.");
+  c.list.forEach(a=>{const r=c.rows[a];L.push(`  ${a} (${meta(a).label}): ${usd(r.val)} (${r.nowPc.toFixed(1)}% of portfolio \u2014 descriptive, opp ${c.oppScores[a]!=null?c.oppScores[a]:"n/a — copy trade"})`);});
+  L.push("  BROKER CASH: "+c.cashPc.toFixed(1)+"% \u2014 reported, not measured against any target");
   if(c.topStock)L.push("  CONCENTRATION: largest single stock "+c.topStock+" at "+c.concPc.toFixed(1)+"%");
   L.push("");
   const mk=S.market,ma=S.macro;
@@ -1489,9 +1696,9 @@ function buildPacket(c){
   L.push("MACRO: CPI "+(ma.cpi??'?')+"% (prior "+(ma.cpiPrev??'?')+"%, risk "+ma.cpiRisk+") | Fed funds "+(ma.fedRate??'?')+"% | cut prob "+(ma.cutProb??'?')+"% | Fear&Greed "+(ma.fg??'?')+" | breadth "+(ma.breadth??'?')+"%");
   if(ma.news)L.push("NEWS: "+ma.news);
   const ev=c.ev;L.push("NEXT EVENT: "+(ev?ev.name+" in "+ev.days+"d ("+ev.impact+")":"none dated"));
-  L.push("APP SCORES: market danger "+c.danger+"/100 ("+c.dangerLabel+") | opportunity "+c.opportunity+"/100 | health "+c.health+"/10 | status "+c.status+" | suggested deploy "+usd(c.deployNow)+(c.waitForEvent?" AFTER event":" now"));
+  L.push("APP SCORES: market danger "+c.danger+"/100 ("+c.dangerLabel+") | tactical opportunity "+c.opportunity+"/100 | concentration "+c.concPc.toFixed(1)+"% | status "+c.status);
   L.push("");
-  L.push("TASK: From your assigned role, give a blunt independent read of (1) portfolio, (2) market, (3) the key risk now, (4) the key opportunity now, (5) deploy today yes/no and where. End with ONE verdict: BUY AGGRESSIVELY / BUY GRADUALLY / HOLD / WAIT / REDUCE RISK. Finish with: IF I HAD $1,000 TODAY → exact split or WAIT FOR <event>.");
+  L.push("TASK: From your assigned role, give a blunt independent read of (1) current position, (2) market, (3) the key risk now, (4) the key opportunity now, (5) whether conditions justify an EXCEPTION to the written policy today \u2014 yes/no and why. Do NOT propose a target allocation or a rebalance. End with ONE verdict: BUY AGGRESSIVELY / BUY GRADUALLY / HOLD / WAIT / REDUCE RISK.");
   return L.join("\n");
 }
 // Portfolio-FREE context for the Geopolitical Risk Officer (Gemini, dedicated geo brief). Deliberately
@@ -1531,7 +1738,25 @@ function voteBreakdownHTML(j){
   return h;
 }
 function geoCardHTML(g){if(!g)return'';if(g.error){return `<div class="geo-card" style="border-color:rgba(229,72,77,.4);background:rgba(229,72,77,.06)"><div class="geo-h" style="color:#f0a0a3">🌍 Geopolitical Risk Officer — couldn't run</div><div style="font-size:12px;color:var(--muted);margin-top:6px">Geo officer${g.model?" ("+esc(g.model)+")":""} error: ${esc(g.error)}</div>${g.note?`<div style="font-size:11px;color:var(--muted-2);margin-top:5px">Reply: ${esc(g.note)}</div>`:''}</div>`;}let h=`<div class="geo-card"><div class="geo-h">🌍 Geopolitical Risk Officer <span style="font-weight:400;color:var(--muted-2);font-size:11px">· ${esc(g.by==='grok'?'Grok':'Gemini')}${g.model?" "+esc(g.model):""} · separate from the vote, not a verdict</span></div>`;if(g.summary)h+=`<div style="font-size:12.5px;color:var(--muted);margin-top:7px">${esc(g.summary)}</div>`;if(Array.isArray(g.events)&&g.events.length)h+=`<ul style="margin:8px 0 0;padding-left:18px;font-size:12.5px;color:var(--fg)">${g.events.map(e=>"<li style='margin-bottom:3px'>"+esc(e)+"</li>").join("")}</ul>`;if(g.couldMakeWrong)h+=`<div style="font-size:12.5px;margin-top:9px"><b style="color:var(--risk)">Could make the committee wrong:</b> ${esc(g.couldMakeWrong)}</div>`;if(g.watch)h+=`<div style="font-size:12.5px;margin-top:5px"><b style="color:var(--watch)">Watch:</b> ${esc(g.watch)}</div>`;return h+`</div>`;}
-async function runDeepTriggers(){
+/* Deep Triggers cache banner (V2 §3.8). The cache lives on the BACKEND so it survives
+ * reloads and protects provider quota across devices. The frontend's only job is to make
+ * it VISIBLE and offer an explicit escape hatch — a silent cache would be dishonest about
+ * how current the analysis is. Degraded runs are never cached server-side, so a "no seats
+ * responded" result can never reappear here wearing a timestamp. */
+function renderCacheBanner(j){
+  const el=$("cacheBanner"); if(!el)return;
+  if(!j||!j.cached){ el.innerHTML=""; return; }
+  const mins=Math.max(0,Math.round((j.ageMs||0)/60000));
+  const ttl=Math.round((j.ttlMs||1500000)/60000);
+  el.innerHTML=`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;border:1px solid var(--line);border-radius:10px;padding:9px 12px;margin:10px 0;background:var(--panel-2)">
+    <span style="font-family:var(--mono);font-size:10.5px;color:var(--watch);border:1px solid var(--watch);border-radius:6px;padding:2px 7px">CACHED</span>
+    <span style="font-size:12.5px;color:var(--muted)">Using analysis from <b>${mins===0?"less than a minute":mins+" minute"+(mins===1?"":"s")} ago</b>. Results are reused for ${ttl} minutes to protect the free-tier AI quota.</span>
+    <button class="btn sm" id="freshRunBtn" style="margin-left:auto;border:1px solid var(--line)">Run fresh analysis</button>
+  </div>`;
+  const b=$("freshRunBtn"); if(b) b.onclick=()=>runDeepTriggers(true);
+}
+
+async function runDeepTriggers(forceFresh){
   S.behaviour=S.behaviour||{refreshLog:[],deepLog:[]};S.behaviour.deepLog.push(Date.now());
   const c=render();$("deepCard").style.display="block";$("deepCard").scrollIntoView({behavior:"smooth",block:"start"});
   const packet=buildPacket(c);renderGrand(c);
@@ -1539,7 +1764,8 @@ async function runDeepTriggers(){
   if(S.backendUrl){
     const base=S.backendUrl.replace(/\/+$/,"");
     $("packetWrap").innerHTML=`<div style="font-size:13px;color:var(--muted);margin-top:12px"><span class="spin"></span> Committee analysing — your seats challenge each other across two rounds, then the chair judges the strongest case…</div>`;
-    try{const r=await fetch(base+"/api/deep-triggers",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({packet,geoPacket:buildGeoPacket(c)})});if(!r.ok)throw new Error("HTTP "+r.status);const j=await r.json();
+    try{const r=await fetch(base+"/api/deep-triggers",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({packet,geoPacket:buildGeoPacket(c),cashContext:{bucket:S.cashBucket||"plan"},fresh:!!forceFresh})});if(!r.ok)throw new Error("HTTP "+r.status);const j=await r.json();
+      renderCacheBanner(j);
       if(!j.models||!j.models.length){
         S.committee.models={};
         S.committee.synth={failed:true,seatsConfigured:j.seatsConfigured!=null?j.seatsConfigured:4,seatsResponded:j.seatsResponded||0,note:j.risk||"No committee models responded.",seatStatus:j.seatStatus,geoRisk:j.geoRisk};
@@ -1548,8 +1774,8 @@ async function runDeepTriggers(){
         persist();recordSnapshot(c,"deep");return;
       }
       (j.models||[]).forEach(m=>{if(m.name&&m.verdict&&S.committee.models.hasOwnProperty(m.name))S.committee.models[m.name]=m.verdict;});
-      S.committee.synth=(j.verdict||j.synthesised)?{verdict:j.verdict,consensus:j.consensus,agree:j.agree||[],disagree:j.disagree||[],strongest:j.strongestArgument||"",weakest:j.weakestAssumption||"",risk:j.risk||"",by:j.synthBy||null,seatsResponded:j.seatsResponded,seatsConfigured:j.seatsConfigured,seatStatus:j.seatStatus,geoRisk:j.geoRisk}:null;
-      renderCommittee(); if(j.ifIHad1000||j.idiotGuide)renderBackendGrand(j);
+      S.committee.synth=(j.verdict||j.synthesised)?{verdict:j.verdict,consensus:j.consensus,agree:j.agree||[],disagree:j.disagree||[],strongest:j.strongestArgument||"",weakest:j.weakestAssumption||"",risk:j.risk||"",by:j.synthBy||null,seatsResponded:j.seatsResponded,seatsConfigured:j.seatsConfigured,seatStatus:j.seatStatus,geoRisk:j.geoRisk,resolution:j.resolution||null}:null;
+      renderCommittee();   // V2: no backend allocation panel \u2014 renderGuide() owns the instruction
       updateJournalVerdict(journalEntry.id);
       let html='';
       // Vote breakdown + seat status — shows every configured seat, the model that actually answered,
@@ -1572,21 +1798,24 @@ async function runDeepTriggers(){
   } else $("packetWrap").innerHTML=packetHTML(packet);
   persist(); recordSnapshot(c,"deep");
 }
+/* V2 (Ruling 3): the prescriptive "If I had $1,000 today — split it like this" panel is REMOVED.
+ * It independently instructed the user how to allocate capital, competing with the resolved final
+ * action and with the written policy. Replaced by a single NON-AUTHORITATIVE tactical line. */
 function renderGrand(c){
-  const g=c.grand;
-  if(g.wait){$("grandWrap").innerHTML=`<div class="grand" style="border-color:var(--watch);background:var(--watch-dim)"><div class="h" style="color:#f0cd8b">If I had $1,000 today</div><div class="b">${esc(g.reason)}</div><div style="font-size:12px;color:var(--muted);margin-top:8px">A high-impact event or high danger is in play. Holding the $1,000 a day or two removes a coin-flip from the entry.</div></div>`;return;}
-  $("grandWrap").innerHTML=`<div class="grand"><div class="h">If I had $1,000 today</div><div class="b">Split it like this</div><div class="split">${g.split.map(s=>`<span class="s">${usd(s.amt)} ${s.asset}</span>`).join("")||'<span class="s">Nothing compelling — hold</span>'}</div><div style="font-size:12px;color:var(--muted);margin-top:8px">Weighted toward the highest opportunity scores, capped on single stocks. Mirrors how to deploy any new cash today.</div></div>`;
+  const el=$("grandWrap"); if(!el)return;
+  const cands=c.list.filter(a=>c.oppScores[a]!=null);
+  let best=null; cands.forEach(a=>{if(!best||c.oppScores[a]>c.oppScores[best])best=a;});
+  el.innerHTML=`<div class="grand" style="border-color:var(--line)">
+    <div class="h" style="font-size:11px;letter-spacing:.1em;color:var(--muted)">TACTICAL ATTRACTIVENESS \u2014 NOT MONTHLY PLAN ALLOCATION</div>
+    <div class="b" style="font-size:14px">${best?`Highest tactical setup currently: <b>${esc(best)}</b> (${c.oppScores[best]})`:"No tactical read available"}</div>
+    <div style="font-size:12px;color:var(--muted);margin-top:8px">Context only. This is not an instruction and does not change the Monthly Plan, which remains <b>${esc(bhdLabel(c.policy.monthlyPlanBhd))} \u2192 ${esc(c.policy.destination)}</b> under written policy.</div></div>`;
 }
-function renderBackendGrand(j){
-  let html=`<div class="grand"><div class="h">If I had $1,000 today · committee</div><div class="b">${esc(asText(j.ifIHad1000)||'—')}</div>`;
-  if(j.idiotGuide){const g=j.idiotGuide,list=a=>Array.isArray(a)?a.map(x=>"<li>"+esc(x)+"</li>").join(""):"";
-    html+=`<div style="margin-top:11px;display:grid;gap:7px;font-size:12.5px">`;
-    if(g.do&&g.do.length)html+=`<div><b style="color:var(--act)">Do:</b><ul style="margin:4px 0 0;padding-left:18px">${list(g.do)}</ul></div>`;
-    if(g.dont&&g.dont.length)html+=`<div><b style="color:var(--risk)">Don't:</b><ul style="margin:4px 0 0;padding-left:18px">${list(g.dont)}</ul></div>`;
-    if(g.checkAgain)html+=`<div><b style="color:var(--watch)">Check again:</b> ${esc(g.checkAgain)}</div>`;
-    html+=`</div>`;}
-  html+=`</div>`;$("grandWrap").innerHTML=html;
-}
+/* V2 (Ruling 3): renderBackendGrand() REMOVED. It overwrote the tactical line with an
+ * "IF I HAD $1,000 TODAY" dollar split, which contradicted the resolved final action
+ * (headline said WATCH ONLY while this panel said deploy $1,325), and it duplicated the
+ * do/don't list that renderGuide() already owns. The resolved action is the single
+ * authority; the committee's reasoning is available in the synthesis and seat cards. */
+
 function packetHTML(packet){return `<div style="font-size:12px;color:var(--muted);margin-top:14px">No backend set, so keys stay off your device. Copy this into each model, then log their verdict above to get the consensus.</div><textarea class="packet-box" id="packetBox" readonly>${esc(packet)}</textarea><div class="ai-links"><button id="copyPacket">Copy packet</button>${AI_LINKS.map(([n,u])=>`<a href="${u}" target="_blank" rel="noopener">${n} ↗</a>`).join("")}</div>`;}
 
 /* ───────── modals ───────── */
@@ -1619,20 +1848,21 @@ $("savePortfolio").onclick=()=>{
 $("setBtn").onclick=()=>{$("s_fx").value=S.fx;$("s_finnhub").value=S.finnhubKey||'';$("s_backend").value=S.backendUrl||'';
   const mk=S.market;$("m_spx").value=mk.spx??'';$("m_ndx").value=mk.ndx??'';$("m_vix").value=mk.vix??'';$("m_2y").value=mk.y2??'';$("m_10y").value=mk.y10??'';$("m_dxy").value=mk.dxy??'';
   const ma=S.macro;$("x_cpi").value=ma.cpi??'';$("x_cpi_prev").value=ma.cpiPrev??'';$("x_fed_rate").value=ma.fedRate??'';$("x_cutprob").value=ma.cutProb??'';$("x_fg").value=ma.fg??'';$("x_breadth").value=ma.breadth??'';$("x_cpirisk").value=ma.cpiRisk||"Medium";$("x_news").value=ma.news||'';
-  const tk=[...syms(),"CASH"];$("targetInputs").innerHTML=tk.map(a=>`<div class="field"><label>${a}</label><input type="number" step="any" id="t_${a}" value="${S.targets[a]??0}"></div>`).join("");tk.forEach(a=>$(`t_${a}`).addEventListener("input",sumTargets));sumTargets();
+  $("in_savings").value=S.position.savingsBhd||'';$("in_tbills").value=S.position.tbillsBhd||'';$("in_oppres").value=S.opportunityReserve||'';
   $("eventInputs").innerHTML=S.events.map((e,i)=>`<div class="grid3" style="margin-bottom:4px"><div class="field"><label>${esc(e.name)}</label><input type="date" id="ev_${i}" value="${e.date||''}"></div><div class="field"><label>Time UTC</label><input type="time" id="evt_${i}" value="${e.time||'13:30'}"></div><div class="field"><label>Impact</label><select id="evi_${i}"><option value="high"${e.impact==='high'?' selected':''}>High</option><option value="med"${e.impact==='med'?' selected':''}>Med</option><option value="low"${e.impact==='low'?' selected':''}>Low</option></select></div></div>`).join("");
-  const AT=[["cashDrag","Cash drag"],["deploy","Deployment signals"],["risk","Market risk"],["events","Event warnings"],["drift","Portfolio drift"],["behaviour","Behaviour warnings"]];
+  const AT=[["cashDrag","Broker cash"],["deploy","Deployment signals"],["risk","Market risk"],["events","Event warnings"],["drift","Composition review triggers"],["behaviour","Behaviour warnings"]];
   $("alertToggles").innerHTML=AT.map(([k,l])=>`<label><input type="checkbox" id="al_${k}" ${S.alertSettings[k]?"checked":""}> ${l}</label>`).join("");
   openModal("setModal");};
-function sumTargets(){const tk=[...syms(),"CASH"];let s=0;tk.forEach(a=>s+=+($(`t_${a}`)?.value||0));const el=$("targetSum");el.textContent="Total: "+s.toFixed(0)+"%"+(Math.abs(s-100)>0.5?"  ← should be 100":"  ✓");el.style.color=Math.abs(s-100)>0.5?C.watch:C.act;}
+// V2: sumTargets() removed — there is no target allocation table to validate to 100%.
 $("saveSettings").onclick=()=>{S.fx=+$("s_fx").value||2.65;S.finnhubKey=$("s_finnhub").value.trim();S.backendUrl=$("s_backend").value.trim();
   const num=v=>v===''?null:+v;
   S.market.spx=num($("m_spx").value);S.market.ndx=num($("m_ndx").value);S.market.vix=num($("m_vix").value);S.market.y2=num($("m_2y").value);S.market.y10=num($("m_10y").value);S.market.dxy=num($("m_dxy").value);
   S.macro.cpi=num($("x_cpi").value);S.macro.cpiPrev=num($("x_cpi_prev").value);S.macro.fedRate=num($("x_fed_rate").value);S.macro.cutProb=num($("x_cutprob").value);S.macro.fg=num($("x_fg").value);S.macro.breadth=num($("x_breadth").value);S.macro.cpiRisk=$("x_cpirisk").value;S.macro.news=$("x_news").value.trim();
-  [...syms(),"CASH"].forEach(a=>{const el=$(`t_${a}`);if(el)S.targets[a]=+el.value||0;});
+  S.position.savingsBhd=+$("in_savings").value||0; S.position.tbillsBhd=+$("in_tbills").value||0;
+  S.opportunityReserve=+$("in_oppres").value||0;
   S.events.forEach((e,i)=>{e.date=$(`ev_${i}`).value;e.time=$(`evt_${i}`).value||"13:30";e.impact=$(`evi_${i}`).value;});
   ["cashDrag","deploy","risk","events","drift","behaviour"].forEach(k=>{const el=$("al_"+k);if(el)S.alertSettings[k]=el.checked;});
-  persist();render();closeModal($("setModal"));toast("Settings saved");};
+  persist();render();probeApiVersion();closeModal($("setModal"));toast("Settings saved");};
 
 document.addEventListener("click",e=>{const t=e.target;
   if(t.id==="copyPacket"){const box=$("packetBox");box.select();try{document.execCommand("copy");}catch(_){}if(navigator.clipboard)navigator.clipboard.writeText(box.value).catch(()=>{});toast("Packet copied");}
@@ -1640,7 +1870,7 @@ document.addEventListener("click",e=>{const t=e.target;
   if(t.classList&&t.classList.contains("vb")){S.committee.models[t.dataset.model]=(S.committee.models[t.dataset.model]===t.dataset.verdict)?null:t.dataset.verdict;persist();renderCommittee();}
   if(t.classList&&t.classList.contains("rm-hold")){const s=t.dataset.sym;delete S.holdings[s];if(S.source==="etoro")S.source="manual";persist();buildEditForm();render();}
   if(t.id==="addHoldingBtn"){const sym=($("e_new_sym").value||"").trim().toUpperCase();if(!sym){toast("Enter a ticker");return;}if(S.holdings[sym]){toast(sym+" already added");return;}
-    S.holdings[sym]={name:meta(sym).name,units:+$("e_new_u").value||0,avgCost:+$("e_new_c").value||0,price:0};if(S.targets[sym]==null)S.targets[sym]=0;if(S.source==="etoro")S.source="manual";persist();buildEditForm();render();toast(sym+" added");}
+    S.holdings[sym]={name:meta(sym).name,units:+$("e_new_u").value||0,avgCost:+$("e_new_c").value||0,price:0};if(S.source==="etoro")S.source="manual";persist();buildEditForm();render();toast(sym+" added");}
   if(t.classList&&t.classList.contains("jedit")){openJournalEdit(t.dataset.id);}
   if(t.classList&&t.classList.contains("al-dismiss")){const k=t.dataset.key;(S.alerts[k]=S.alerts[k]||{}).dismissed=true;persist();render();}
   if(t.classList&&t.classList.contains("al-snooze")){const k=t.dataset.key;(S.alerts[k]=S.alerts[k]||{}).snoozeUntil=nextMidnight();persist();render();toast("Snoozed until tomorrow");}
@@ -1648,8 +1878,11 @@ document.addEventListener("click",e=>{const t=e.target;
 $("saveJournal").onclick=()=>{const e=S.journal.find(x=>x.id===journalEditId);if(e){e.actualAction=$("j_action").value.trim();e.notes=$("j_notes").value.trim();e.outcome=$("j_outcome").value.trim();if(e.outcome&&!e.outcomeTs)e.outcomeTs=Date.now();persist();syncHistory("journal",e);renderJournal();}closeModal($("journalModal"));toast("Decision logged");};
 
 /* ───────── boot ───────── */
-$("refreshBtn").onclick=refreshLive;$("deepBtn").onclick=runDeepTriggers;
+$("refreshBtn").onclick=refreshLive;$("deepBtn").onclick=()=>runDeepTriggers(false);
 $("sysCheckBtn").onclick=runSystemCheck;
+function paintBuckets(){var b=S.cashBucket||"plan";document.querySelectorAll(".bkt").forEach(function(el){var on=el.getAttribute("data-bucket")===b;el.style.background=on?C.data:"";el.style.color=on?"#05070E":"";el.style.fontWeight=on?"700":"";});}
+document.querySelectorAll(".bkt").forEach(function(el){el.onclick=function(){S.cashBucket=el.getAttribute("data-bucket");persist();paintBuckets();};});
+paintBuckets();
 $("sysCheckTop").onclick=async()=>{const b=$("sysCheckTop"),t=b.textContent,st=$("sysCheckStatus");b.disabled=true;b.textContent="Checking…";if(st)st.style.display="none";
   let r=null;try{r=await runSystemCheck();}catch(_){}
   b.disabled=false;b.textContent=t;
@@ -1692,11 +1925,25 @@ $("navMarkets").onclick=()=>{document.body.classList.add("show-markets");$("navm
 $("navChat").onclick=()=>{$("navmenu").classList.remove("open");openChat();};
 $("navSettings").onclick=()=>{$("navmenu").classList.remove("open");$("setBtn").click();};
 $("navEdit").onclick=()=>{$("navmenu").classList.remove("open");$("editBtn").click();};
-$("chatClose").onclick=closeChat;
-$("chatSend").onclick=sendChat;
-$("chatInput").addEventListener("keydown",(e)=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendChat();}});
-$("chatInput").addEventListener("input",function(){this.style.height="auto";this.style.height=Math.min(this.scrollHeight,140)+"px";});
+/* PRE-EXISTING BUG FIX (page-load crash). The chat overlay markup sits BELOW this script
+ * block, so chatClose/chatSend/chatInput do not exist yet while the script is executing.
+ * The first assignment threw a TypeError, which aborted the remainder of the script -
+ * including render() and probeApiVersion() below. Symptom: a blank dashboard on every
+ * fresh page load, which only filled in once some later event (Refresh, tab focus)
+ * happened to trigger a re-render. Deferred to DOM ready and null-guarded.
+ * NOTE: do not write a literal script-closing tag in comments in this file - it ends the
+ * script block during HTML parsing and breaks everything below it. */
+document.addEventListener("DOMContentLoaded",function(){
+  var cc=$("chatClose"), cs=$("chatSend"), ci=$("chatInput");
+  if(cc) cc.onclick=closeChat;
+  if(cs) cs.onclick=sendChat;
+  if(ci){
+    ci.addEventListener("keydown",(e)=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendChat();}});
+    ci.addEventListener("input",function(){this.style.height="auto";this.style.height=Math.min(this.scrollHeight,140)+"px";});
+  }
+});
 render();
+probeApiVersion();   // non-blocking: fills the FE/API build chip and flags deployment drift
 </script><div class="chat-overlay" id="chatOverlay">
   <div class="chat-head">
     <div><div class="chat-title">Chat with AI</div><div class="chat-sub">Sees your live snapshot · advice only, you approve every trade</div></div>
