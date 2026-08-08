@@ -7,13 +7,14 @@
  * upstream returns null for that field instead of crashing the response.
  *
  * Endpoints
- *   GET  /api/health
+ *   GET  /api/health          -> ok, version (build id), key/seat availability
  *   GET  /api/prices?symbols=VOO,QQQ,NVDA,MSFT,VXUS,SCHD
  *   GET  /api/market          -> spx, ndx, vix, y2, y10, dxy
  *   GET  /api/macro           -> cpi, cpiPrev, fedRate, cutProb, fg, breadth
  *   GET  /api/events          -> upcoming CPI/PPI/Jobs/Fed + NVDA/MSFT earnings
  *   GET  /api/news            -> market headlines
- *   POST /api/deep-triggers   -> { packet } => AI consensus, verdict, risk, $1000, idiot guide
+ *   POST /api/deep-triggers   -> { packet, cashContext, fresh? } => AI consensus, verdict, risk
+ *                                (25-minute result cache; see DEEP_CACHE below)
  */
 
 try { require('dotenv').config(); } catch (_) { /* dotenv optional: hosted platforms inject env vars directly */ }
@@ -21,9 +22,24 @@ const express = require('express');
 const cors = require('cors');
 const { resolve: resolveCommitteeAction } = require('./committee-resolver');
 
+/* ── BUILD IDENTIFICATION (V2 §3.1) ────────────────────────────────────────────
+ * Explicit constant, deliberately NOT derived from package.json (Ruling 6). Bump this
+ * by hand whenever the backend is deployed. Surfaced via /api/health so the frontend
+ * can compare it against its own constant and flag frontend/backend deployment drift.
+ * The frontend expects API_VERSION to match its EXPECTED_API constant.               */
+const API_VERSION = '2.0.0';
+
 const app = express();
 app.use(express.json({ limit: '128kb' }));
-app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
+/* CORS (step 6). Now accepts a comma-separated list, e.g.
+ *   CORS_ORIGIN=https://ajoc1988.github.io
+ * DEFAULT IS STILL '*' AND THAT IS DELIBERATE — see the deployment notes. Restricting it
+ * would break opening the dashboard as a local file (file:// sends `Origin: null`), which
+ * the owner does when testing. CORS constrains browsers only and does nothing against a
+ * script or curl, so this is tidiness rather than a control; authentication is what
+ * actually protects these routes. Owner's call, not a silent default change. */
+const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
+app.use(cors({ origin: CORS_ORIGIN === '*' ? '*' : CORS_ORIGIN.split(',').map(x => x.trim()).filter(Boolean) }));
 
 const PORT = process.env.PORT || 8787;
 const FINNHUB = process.env.FINNHUB_API_KEY || '';
@@ -60,20 +76,184 @@ async function cached(key, ttlMs, fn) {
   if (hit && hit.exp > Date.now()) return hit.data;
   const data = await fn();
   cache.set(key, { data, exp: Date.now() + ttlMs });
+  // Nothing ever evicted from this Map before (step 5). Sweep expired entries once it grows.
+  if (cache.size > 400) { const now = Date.now(); for (const [k, v] of cache) if (v.exp < now) cache.delete(k); }
   return data;
 }
 
-// very light per-IP rate limit (protects your keys from a runaway client)
+/* ── Client IP behind Render's proxy (step 4) ───────────────────────────────────
+ * Express defaults to trust proxy = false, which made req.ip the address of Render's
+ * edge proxy rather than the visitor — meaning every client on earth shared ONE rate
+ * limit bucket, so an attacker draining the API would also lock the owner out.
+ * Render puts exactly one proxy in front of the service, hence 1.
+ * Set TRUST_PROXY=0 to disable if that ever changes. Verify with the authenticated
+ * /api/health payload, which reports the observed ip and X-Forwarded-For chain —
+ * deliberately NOT a public debug endpoint. */
+app.set('trust proxy', process.env.TRUST_PROXY != null ? (isNaN(+process.env.TRUST_PROXY) ? process.env.TRUST_PROXY : +process.env.TRUST_PROXY) : 1);
+
+/* Opportunistic per-IP limit. Lowered from 120/min: at 120 an attacker was allowed
+ * 172,800 committee runs a day, each costing 10-29 upstream AI calls. This is now a
+ * backstop against a runaway client, NOT the quota protection — authentication is
+ * what stops quota drain, and the durable daily cap below is what bounds the cost of
+ * a stolen token. Entries are pruned; the original Map grew without limit. */
 const hits = new Map();
+const RATE_MAX = Math.max(10, +process.env.RATE_MAX || 40);
 app.use((req, res, next) => {
   const ip = req.ip || 'x';
   const now = Date.now();
+  if (hits.size > 5000) { for (const [k, v] of hits) if (v.exp < now) hits.delete(k); }
   const w = hits.get(ip) || { n: 0, exp: now + 60000 };
   if (w.exp < now) { w.n = 0; w.exp = now + 60000; }
   w.n++; hits.set(ip, w);
-  if (w.n > 120) return res.status(429).json({ error: 'rate_limited' });
+  if (w.n > RATE_MAX) return res.status(429).json({ error: 'rate_limited' });
   next();
 });
+
+
+/* ═══════════════════ AUTHENTICATION (step 2) ═══════════════════════════════════
+ * One owner, static GitHub Pages frontend, Render free backend.
+ *
+ * Signed STATELESS tokens, not server-held sessions. This is not a preference:
+ * DEEP_CACHE, `cache` and `hits` are all in-memory Maps and every one of them is
+ * emptied by a Render cold start (see the DEEP_CACHE note below). A session store
+ * would be a fourth such Map, so every sleep would force a re-login. A signed token
+ * stores nothing here, so a restart cannot lose it — the secret is revalidated from
+ * the environment on every request.
+ *
+ * FAILS CLOSED. If OWNER_PASSWORD or TOKEN_SECRET is missing, every protected route
+ * AND /api/login return 503. There is deliberately no "skip the check if unconfigured"
+ * path: the rest of this file degrades gracefully when a key is absent (sbOn,
+ * providerHasKey, loadPrompt) which is right for a data feed and catastrophic here.  */
+const crypto = require('crypto');
+
+const OWNER_PASSWORD = process.env.OWNER_PASSWORD || '';
+const TOKEN_SECRET   = process.env.TOKEN_SECRET || '';
+const AUTH_READY     = !!(OWNER_PASSWORD && TOKEN_SECRET);
+const TOKEN_TTL_MS       = 12 * 60 * 60 * 1000;   // absolute lifetime
+const TOKEN_REFRESH_MS   =      60 * 60 * 1000;   // re-issue once a token is older than this
+
+const b64u = (buf) => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const b64uDec = (s) => { const t = String(s).replace(/-/g, '+').replace(/_/g, '/'); return Buffer.from(t + '='.repeat((4 - t.length % 4) % 4), 'base64'); };
+
+function issueToken() {
+  const now = Date.now();
+  const p = b64u(JSON.stringify({ iat: now, exp: now + TOKEN_TTL_MS }));
+  return p + '.' + b64u(crypto.createHmac('sha256', TOKEN_SECRET).update(p).digest());
+}
+function verifyToken(tok) {
+  if (!AUTH_READY || typeof tok !== 'string') return null;
+  const i = tok.indexOf('.');
+  if (i <= 0) return null;
+  const p = tok.slice(0, i), sig = tok.slice(i + 1);
+  const expect = b64u(crypto.createHmac('sha256', TOKEN_SECRET).update(p).digest());
+  const a = Buffer.from(sig), b = Buffer.from(expect);
+  if (a.length !== b.length) return null;                 // timingSafeEqual throws on length mismatch
+  if (!crypto.timingSafeEqual(a, b)) return null;
+  let payload = null;
+  try { payload = JSON.parse(b64uDec(p).toString('utf8')); } catch (_) { return null; }
+  if (!payload || typeof payload.exp !== 'number' || typeof payload.iat !== 'number') return null;
+  if (Date.now() >= payload.exp) return null;
+  return payload;
+}
+
+/* Password check. The password is stored in the environment in plaintext, alongside every
+ * other secret this service holds, so hashing it AT REST would buy nothing. The ONE thing
+ * scrypt buys here is a deliberate ~100ms cost per attempt, which is what makes online
+ * guessing expensive. Do not "optimise" it away — the slowness IS the feature.
+ * Async form only: scryptSync would block Node's single thread and freeze every other
+ * request for the duration of each login attempt. */
+const SCRYPT_OPTS = { N: 16384, r: 8, p: 1, maxmem: 96 * 1024 * 1024 };
+const SCRYPT_SALT = AUTH_READY ? crypto.createHash('sha256').update(TOKEN_SECRET).digest() : Buffer.alloc(32);
+function scryptOnce(pw) {
+  return new Promise((resolve, reject) => crypto.scrypt(pw, SCRYPT_SALT, 32, SCRYPT_OPTS, (e, dk) => e ? reject(e) : resolve(dk)));
+}
+let _ownerDkP = null;
+function ownerDk() { if (!_ownerDkP) _ownerDkP = scryptOnce(OWNER_PASSWORD); return _ownerDkP; }   // derived once, then cached
+
+/* Two controls, two different jobs. The counter limits guesses; the concurrency ceiling
+ * protects the box. scrypt is memory-hard by design (~16MB per operation at these
+ * parameters), so unbounded parallel logins would exhaust RAM on a 512MB instance long
+ * before they exhausted anyone's patience. Neither needs durable persistence: with a
+ * high-entropy password, a restart handing an attacker five more guesses is not useful.
+ * Durable limits belong on the endpoints where a SUCCESSFUL request costs quota. */
+const LOGIN_FAILS = new Map();
+const LOGIN_MAX = 5, LOGIN_WINDOW_MS = 60000;
+let SCRYPT_INFLIGHT = 0;
+const SCRYPT_MAX_INFLIGHT = 2;
+
+app.post('/api/login', async (req, res) => {
+  if (!AUTH_READY) return res.status(503).json({ error: 'auth_not_configured' });
+  const ip = req.ip || 'x', now = Date.now();
+  if (LOGIN_FAILS.size > 500) { for (const [k, v] of LOGIN_FAILS) if (v.exp < now) LOGIN_FAILS.delete(k); }
+  const w = LOGIN_FAILS.get(ip);
+  if (w && w.exp > now && w.n >= LOGIN_MAX) return res.status(429).json({ error: 'too_many_attempts' });
+  const pw = req.body && req.body.password;
+  if (typeof pw !== 'string' || !pw) return res.status(400).json({ error: 'password_required' });
+  if (SCRYPT_INFLIGHT >= SCRYPT_MAX_INFLIGHT) return res.status(503).json({ error: 'busy_try_again' });
+  SCRYPT_INFLIGHT++;
+  try {
+    const [given, owner] = await Promise.all([scryptOnce(pw), ownerDk()]);
+    const ok = given.length === owner.length && crypto.timingSafeEqual(given, owner);
+    if (!ok) {
+      const cur = (w && w.exp > now) ? w : { n: 0, exp: now + LOGIN_WINDOW_MS };
+      cur.n++; LOGIN_FAILS.set(ip, cur);
+      return res.status(401).json({ error: 'invalid_password' });
+    }
+    LOGIN_FAILS.delete(ip);
+    return res.json({ token: issueToken(), expiresAt: Date.now() + TOKEN_TTL_MS });
+  } catch (e) {
+    console.error('[login] scrypt failed:', (e && e.message) || e);
+    return res.status(500).json({ error: 'login_failed' });
+  } finally { SCRYPT_INFLIGHT--; }
+});
+
+/* ALLOWLIST, not a blocklist. The header comment at the top of this file documents seven
+ * routes when thirteen exist — that drift happened during normal development. With a
+ * blocklist the next route added would be PUBLIC by default and nothing would flag it.
+ * With an allowlist it is protected by default and fails loudly. Add to this set only
+ * deliberately. */
+const PUBLIC_PATHS = new Set(['/api/health', '/api/market', '/api/macro', '/api/events', '/api/news', '/api/login']);
+
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') return next();                 // preflight is answered by cors() above
+  const p = ((req.path || '').replace(/\/+$/, '')) || '/';
+  if (PUBLIC_PATHS.has(p)) return next();
+  if (!AUTH_READY) return res.status(503).json({ error: 'auth_not_configured', detail: 'Set OWNER_PASSWORD and TOKEN_SECRET on the server.' });
+  const h = req.headers.authorization || '';
+  const payload = verifyToken(h.startsWith('Bearer ') ? h.slice(7).trim() : '');
+  if (!payload) return res.status(401).json({ error: 'unauthorised' });
+  req.auth = payload;
+  /* Sliding refresh — in the RESPONSE BODY, never a custom header. Browsers expose only the
+   * CORS-safelisted response headers to JavaScript unless the server names others in
+   * Access-Control-Expose-Headers, and this service sets none. A header would be silently
+   * invisible to the frontend: everything would look correct for 12 hours and then log the
+   * owner out with no discoverable cause. */
+  if (Date.now() - payload.iat > TOKEN_REFRESH_MS) {
+    const fresh = issueToken();
+    const orig = res.json.bind(res);
+    res.json = (obj) => orig((obj && typeof obj === 'object' && !Array.isArray(obj)) ? Object.assign({}, obj, { token: fresh }) : obj);
+  }
+  next();
+});
+/* ══════════════════════════════════════════════════════════════════════════════ */
+
+
+/* ── ERROR SURFACES (step 3) ────────────────────────────────────────────────────
+ * Split by route class, per owner ruling.
+ *   PUBLIC routes  -> fixed generic strings. These are the routes whose upstream calls
+ *                     carry FRED_API_KEY / FINNHUB_API_KEY in the URL QUERY STRING, and
+ *                     the caller could be anyone. If an upstream ever echoes the request
+ *                     URL inside its error body, the old code would have relayed it.
+ *   AUTHENTICATED  -> classified, not dumped. The only reader is the owner, and the
+ *                     classification preserves the diagnostic that actually matters
+ *                     ("rate-limited / daily quota") without the provider's raw text.
+ * Everything raw goes to console.error, i.e. the Render log, which only the owner sees.
+ * Before this change there was no logging at all in this file beyond the startup line. */
+function logUpstream(where, e) {
+  try { console.error('[' + where + ']', String((e && e.message) || e).slice(0, 400)); } catch (_) {}
+}
+// Public-facing: never varies with upstream text.
+function publicErr(where, e) { logUpstream(where, e); return 'upstream data source unavailable'; }
 
 /* ───────── FRED helpers ───────── */
 async function fredObs(series, limit = 1) {
@@ -91,8 +271,19 @@ async function fredLatest(series) {
 
 /* ───────── /api/health ───────── */
 app.get('/api/health', (req, res) => {
+  /* PUBLIC payload is deliberately minimal. The frontend needs this before sign-in for the
+   * build chip and the "backend reachable" check, so it stays open — but the provider
+   * enumeration below is a targeting aid (it tells an attacker which quota is worth
+   * draining) with no value to a logged-out page. Full detail requires a valid token. */
+  const h = req.headers.authorization || '';
+  const authed = !!verifyToken(h.startsWith('Bearer ') ? h.slice(7).trim() : '');
+  if (!authed) return res.json({ ok: true, version: API_VERSION, ts: Date.now() });
   res.json({
     ok: true,
+    version: API_VERSION,
+    /* Observed client address, so the TRUST_PROXY setting can be verified without a
+     * public debug endpoint (owner ruling 9). Authenticated-only. */
+    client: { ip: req.ip, xff: req.headers['x-forwarded-for'] || null, trustProxy: app.get('trust proxy') },
     keys: {
       etoro: ETORO_ON, finnhub: !!FINNHUB, fred: !!FRED, supabase: !!(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY),
       openai: !!process.env.OPENAI_API_KEY, anthropic: !!process.env.ANTHROPIC_API_KEY,
@@ -100,7 +291,12 @@ app.get('/api/health', (req, res) => {
       openrouter: !!process.env.OPENROUTER_API_KEY, groq: !!process.env.GROQ_API_KEY, grok: GROK_ON
     },
     committeeSeats: loadSeats().filter(s => providerHasKey(s.provider)).length,
-    geoOfficer: (process.env.GEMINI_API_KEY) ? { on: true, model: process.env.GEO_MODEL || process.env.GEMINI_MODEL || 'gemini-2.5-flash', by: 'gemini' } : { on: false },
+    /* FIXED: this used to report `GEO_MODEL || GEMINI_MODEL || 'gemini-2.5-flash'`, but
+     * runGeoOfficer() actually calls the GEO_MODEL constant, which falls back to a different
+     * default and ignores GEMINI_MODEL entirely. With GEMINI_MODEL set and GEO_MODEL unset
+     * the two genuinely disagreed, so the dashboard reported a model that was not the one
+     * doing the work. Report the constant that is actually used. */
+    geoOfficer: (process.env.GEMINI_API_KEY) ? { on: true, model: GEO_MODEL, by: 'gemini' } : { on: false },
     ts: Date.now()
   });
 });
@@ -108,7 +304,11 @@ app.get('/api/health', (req, res) => {
 /* ───────── /api/prices ───────── */
 app.get('/api/prices', async (req, res) => {
   const symbols = String(req.query.symbols || 'VOO,QQQ,NVDA,MSFT,VXUS,SCHD')
-    .split(',').map(s => s.trim().toUpperCase()).filter(Boolean).slice(0, 25);
+    .split(',').map(s => s.trim().toUpperCase()).filter(s => /^[A-Z0-9.\-]{1,12}$/.test(s))
+    .filter((v, i, a) => a.indexOf(v) === i).sort().slice(0, 25);
+  /* Sorted + de-duplicated + shape-validated (step 5). The cache key is built from this list,
+   * so previously VOO,QQQ and QQQ,VOO were two entries and arbitrary junk symbols could mint
+   * unlimited ones. Normalising collapses the permutations; the regex rejects the junk. */
   try {
     const data = await cached('prices:' + symbols.join(','), 30000, async () => {
       const out = {};
@@ -122,7 +322,7 @@ app.get('/api/prices', async (req, res) => {
       return { prices: out, source: 'finnhub' };
     });
     res.json({ ...data, ts: Date.now() });
-  } catch (e) { res.json({ prices: {}, source: 'error', error: String(e.message), ts: Date.now() }); }
+  } catch (e) { res.json({ prices: {}, source: 'error', error: publicErr('prices', e), ts: Date.now() }); }
 });
 
 /* ───────── /api/market ───────── */
@@ -140,7 +340,7 @@ app.get('/api/market', async (req, res) => {
       return { spx, ndx, vix, y2, y10, dxy, source: FRED ? 'fred' : 'none' };
     });
     res.json({ ...data, note: 'FRED values are daily close (may lag intraday).', ts: Date.now() });
-  } catch (e) { res.json({ error: String(e.message), ts: Date.now() }); }
+  } catch (e) { res.json({ error: publicErr('market', e), ts: Date.now() }); }
 });
 
 /* ───────── /api/macro ───────── */
@@ -181,7 +381,7 @@ app.get('/api/macro', async (req, res) => {
       };
     });
     res.json({ ...data, ts: Date.now() });
-  } catch (e) { res.json({ error: String(e.message), ts: Date.now() }); }
+  } catch (e) { res.json({ error: publicErr('macro', e), ts: Date.now() }); }
 });
 
 /* ───────── /api/events ───────── */
@@ -212,7 +412,7 @@ app.get('/api/events', async (req, res) => {
       return { events, source: FINNHUB ? 'finnhub-earnings' : 'config', note: 'Macro release dates need manual entry (no free economic calendar).' };
     });
     res.json({ ...data, ts: Date.now() });
-  } catch (e) { res.json({ events: [], error: String(e.message), ts: Date.now() }); }
+  } catch (e) { res.json({ events: [], error: publicErr('events', e), ts: Date.now() }); }
 });
 
 /* ───────── /api/news ───────── */
@@ -228,7 +428,7 @@ app.get('/api/news', async (req, res) => {
       return { news, source: 'finnhub' };
     });
     res.json({ ...data, ts: Date.now() });
-  } catch (e) { res.json({ news: [], error: String(e.message), ts: Date.now() }); }
+  } catch (e) { res.json({ news: [], error: publicErr('news', e), ts: Date.now() }); }
 });
 
 /* ───────── /api/portfolio (eToro READ-ONLY stub) ─────────
@@ -242,7 +442,7 @@ app.get('/api/news', async (req, res) => {
  * returns source:"manual" so the dashboard keeps using manual/last-known data.
  */
 function n2(v) { const x = num(v); return x == null ? null : x; }
-const crypto = require('crypto');
+// NOTE: `crypto` is now required near the top, with the auth block (it is needed before the routes).
 function etoroHeaders() {
   return { 'x-request-id': crypto.randomUUID(), 'x-api-key': ETORO_KEY, 'x-user-key': ETORO_USER_KEY, 'Accept': 'application/json' };
 }
@@ -393,7 +593,7 @@ app.get('/api/portfolio', async (req, res) => {
     res.json({ ...data, source: 'etoro', connected: true, env: ETORO_ENV, ts: Date.now() });
   } catch (e) {
     res.json({
-      source: 'manual', connected: false, error: String(e.message),
+      source: 'manual', connected: false, error: (logUpstream('portfolio', e), shortReason(String((e && e.message) || e))),
       note: 'eToro sync unavailable — using manual/last known data.',
       holdings: [], allocationPercentages: {}, ts: Date.now()
     });
@@ -411,7 +611,7 @@ const DEFENSIVE_VERDICTS = ['WATCH', 'HOLD', 'WAIT', 'REDUCE RISK'];
 function coerceDefensive(v) { return DEFENSIVE_VERDICTS.includes(v) ? v : 'WAIT'; }
 // Shared rubric so every seat (and the chair) uses the ladder the same way.
 const VERDICT_GUIDE = '\n\nVERDICT LADDER (use these exact words):\n' +
-  '- DEPLOY ON PLAN: routine — put excess cash to work in underweight core holdings to hit existing targets. This is maintenance, not aggression.\n' +
+  '- DEPLOY ON PLAN: routine — proceed with the written Investment Policy as scheduled. This is maintenance, not aggression.\n' +
   '- BUY GRADUALLY: ease in over several tranches rather than all at once.\n' +
   '- WATCH: conditions mixed; prepare but wait for a specific trigger.\n' +
   '- HOLD: do nothing; stay the course.\n' +
@@ -421,10 +621,13 @@ const VERDICT_GUIDE = '\n\nVERDICT LADDER (use these exact words):\n' +
 
 // Built-in fallbacks used only if a prompt file is missing.
 const DEFAULTS = {
-  'system-investing.md': 'You advise Andrew Collins, a long-term eToro ETF/stock investor in Bahrain. Advice only — never place trades, never suggest leverage/CFDs/options/shorting/crypto. Scope: portfolio, markets, dry powder, deployment, risk, opportunity. Be blunt and decision-led.',
-  'deep-triggers.md': 'From your role, give a blunt independent read of the portfolio, market, the biggest risk, the best opportunity, and whether to deploy today and where. End with ONE verdict.',
+  'system-investing.md': 'You advise Andrew Collins, a long-term eToro ETF/stock investor in Bahrain. Advice only — never place trades, never suggest leverage/CFDs/options/shorting/crypto. '
+    + 'His written Investment Policy is the primary authority: Monthly Plan = BHD500 into ISAC.L, ON POLICY. There are NO target allocation percentages; current composition is DESCRIPTIVE only. '
+    + 'Never recommend a rebalance, a target allocation, or redirecting the Monthly Plan because weights differ. Your role is to identify genuine EXCEPTIONS to the policy, not to design a better portfolio. '
+    + 'Treasury Bills and Savings are ring-fenced and non-deployable — never treat them as available capital. Be blunt and decision-led.',
+  'deep-triggers.md': 'From your role, give a blunt independent read of the current position, market, the biggest risk, the best opportunity, and whether conditions justify an exception to the written Investment Policy today. Do not propose a target allocation or a rebalance. End with ONE verdict.',
   roles: {
-    pm: 'Portfolio Manager. Focus on allocation, deployment of dry powder, hitting target weights, and long-term compounding. Pragmatic, action-oriented.',
+    pm: 'Portfolio Manager. Focus on whether the written Investment Policy should proceed as scheduled, sizing of any discretionary deployment, and long-term compounding. There are no target weights to hit \\u2014 do not propose a target allocation or a rebalance. Pragmatic, action-oriented.',
     risk: 'Risk Manager. Assess portfolio-specific risk: concentration (single names like NVDA/AIA), diversification, drawdown capacity and position sizing. Constructive but cautious.',
     macro: 'Macro Analyst. Read the VIX, yields, the yield curve, CPI and the Fed, plus any headlines/catalysts in the packet. Judge the regime and whether conditions favour deploying or waiting.',
     news: 'News / Research Analyst. Weigh the headlines and catalysts in the packet. Separate signal from noise; flag anything that genuinely changes the picture.',
@@ -434,16 +637,18 @@ const DEFAULTS = {
   }
 };
 const _pcache = {};
+const _psource = {};   // step 7: 'file' when an override exists on disk, 'default' when built-in
 function loadPrompt(file) {
   try {
     const fp = path.join(PROMPT_DIR, file);
     const st = fs.statSync(fp);
     const c = _pcache[file];
-    if (c && c.mt === st.mtimeMs) return c.data;          // serve cached unless the file changed
+    if (c && c.mt === st.mtimeMs) { _psource[file] = 'file'; return c.data; }   // serve cached unless the file changed
     const txt = fs.readFileSync(fp, 'utf8');
     _pcache[file] = { mt: st.mtimeMs, data: txt };
+    _psource[file] = 'file';
     return txt;
-  } catch (_) { return DEFAULTS[file] || ''; }
+  } catch (_) { _psource[file] = 'default'; return DEFAULTS[file] || ''; }
 }
 function loadRoles() {
   const txt = loadPrompt('ai-roles.json');
@@ -575,6 +780,7 @@ async function callSeatModel(provider, model, user, system) {
     if (c) return { ok: true, content: c };
     return { ok: false, error: providerHasKey(provider) ? 'empty response' : 'no API key' };
   } catch (e) {
+    logUpstream('seat:' + provider + ':' + model, e);
     return { ok: false, error: String((e && e.message) || e).slice(0, 160) };
   }
 }
@@ -607,7 +813,10 @@ function shortReason(r) {
   if (/empty response/i.test(r)) return 'empty reply';
   if (/no API key/i.test(r)) return 'no API key';
   if (/5\d\d/.test(r)) return 'provider error (5xx)';
-  return r.slice(0, 70);
+  // Was: return r.slice(0, 70) — a raw dump of upstream text. Classify instead; the full
+  // string is in the Render log. "provider quota exceeded" is the diagnostic that matters
+  // and it is preserved above; this branch only catches genuinely novel failures.
+  return 'provider error (unclassified \u2014 see server log)';
 }
 
 // Committee seats — genuine diversity = different model FAMILIES + different roles.
@@ -657,7 +866,7 @@ function buildMemory(runs, journal) {
 }
 
 const MODEL_ASK = '\n\nRespond ONLY with compact JSON, no markdown:\n{"verdict":"<one of: ' + VERDICTS.join(' | ') + '>","keyArgument":"<your single strongest point>","weakestAssumption":"<the weakest assumption in the optimistic case>","risk":"<the biggest risk being ignored>","deploy":"<exact $ split for new cash today, or WAIT FOR <event>>","reasoning":"<2-3 blunt sentences>"}';
-const SYNTH_ASK = '\n\nYou MUST judge which argument is strongest. DO NOT average the verdicts and DO NOT just take the majority. Decide.\n\nRespond ONLY with compact JSON, no markdown:\n{"finalVerdict":"<one of: ' + VERDICTS.join(' | ') + '>","agree":["<points all/most models agree on>"],"disagree":["<genuine points of disagreement>"],"strongestArgument":"<which view is strongest and why>","weakestAssumption":"<the weakest assumption anyone is relying on>","riskWarning":"<one blunt sentence>","ifIHad1000":"<exact $ split totalling 1000, or WAIT FOR <event>>","idiotGuide":{"do":["..."],"dont":["..."],"checkAgain":"..."}}';
+const SYNTH_ASK = '\n\nYou MUST judge which argument is strongest. DO NOT average the verdicts and DO NOT just take the majority. Decide.\n\nRespond ONLY with compact JSON, no markdown:\n{"finalVerdict":"<one of: ' + VERDICTS.join(' | ') + '>","agree":["<points all/most models agree on>"],"disagree":["<genuine points of disagreement>"],"strongestArgument":"<which view is strongest and why>","weakestAssumption":"<the weakest assumption anyone is relying on>","riskWarning":"<one blunt sentence>","idiotGuide":{"do":["..."],"dont":["..."],"checkAgain":"..."}}';
 const GEO_ASK = '\n\nYou are NOT a market analyst and you do NOT give buy/sell/hold advice. You never see the portfolio. Your ONLY job: name near-term (next 1\u20134 weeks) GLOBAL or GEOPOLITICAL events that could make the committee\u2019s verdict wrong \u2014 wars, sanctions, elections, oil/energy shocks, central-bank surprises, tariffs, major-power tensions.\n\nRespond ONLY with compact JSON, no markdown:\n{"summary":"<2 sentences on the geopolitical risk backdrop right now>","events":["<near-term event + date if known + why it matters to markets>","..."],"couldMakeWrong":"<the single scenario most likely to blindside the committee\u2019s verdict>","watch":"<the one headline or indicator to watch>"}';
 
 // Dedicated Geopolitical Risk Officer brief. Same underlying model as a committee seat can use, but a
@@ -693,7 +902,11 @@ async function runGeoOfficer(geoPacket, verdict, ROLES) {
       const last = i === delays.length - 1;
       if (!last && geoIsTransient(msg)) continue;
       const tries = i + 1;
-      return { error: msg.slice(0, 200) + (tries > 1 ? ' (after ' + tries + ' attempts)' : ''), by: 'gemini', model: GEO_MODEL, attempts: tries };
+      logUpstream('geo', msg);
+      // Classified, not dumped (step 3). This is the path that produces the visible
+      // "quota exhausted" signal, so it must stay informative — shortReason maps both
+      // 429 and the word "quota" to 'rate-limited / daily quota'.
+      return { error: shortReason(msg) + (tries > 1 ? ' (after ' + tries + ' attempts)' : ''), by: 'gemini', model: GEO_MODEL, attempts: tries };
     }
   }
   if (!raw) return { error: 'Geopolitical Officer (Gemini) returned an empty response.', by: 'gemini', model: GEO_MODEL };
@@ -706,14 +919,89 @@ async function runGeoOfficer(geoPacket, verdict, ROLES) {
   };
 }
 
+/* ── DEEP TRIGGERS RESULT CACHE (V2 §3.8, Ruling 5) ────────────────────────────
+ * Purpose: protect free-tier provider quota across page reloads and devices. That is
+ * why it lives here and not in the browser — a frontend cache dies on refresh.
+ *
+ * TTL 25 minutes. VISIBLE, never silent: every served hit carries cached/cachedAt/ageMs
+ * so the frontend can say "Using analysis from 8 minutes ago" and offer a fresh run.
+ *
+ * Key = hash(normalised packet) + bucket + seat fingerprint.
+ *   - The packet's first line is a fresh ISO timestamp on every build, so hashing it raw
+ *     would give a 0% hit rate — a cache that looks like it works and silently does
+ *     nothing. NORM_PACKET strips volatile lines before hashing.
+ *   - Bucket is mandatory: the resolver returns DIFFERENT actions for the same verdict
+ *     depending on bucket, so a Monthly Plan run must never be replayed for Broker Cash
+ *     or the Opportunity Reserve.
+ *   - Seat fingerprint: if the seat/model configuration changes, past results don't apply.
+ *
+ * NEVER caches a failed or empty run. A quota-exhausted "no seats responded" result must
+ * not be served for 25 minutes dressed up as analysis — that is the opposite of the point,
+ * and an honest "no verdict" has to stay honest.
+ *
+ * In-memory by design. Render free instances sleep, so this is opportunistic, not
+ * guaranteed: a cold start empties it. It still solves repeated runs within a session.  */
+const DEEP_TTL_MS = 25 * 60 * 1000;
+const DEEP_CACHE = new Map();
+
+function normPacket(p) {
+  return String(p)
+    .split('\n')
+    .filter(l => !/^MARKET BRIEFING PACKET/i.test(l))   // volatile: carries a fresh ISO timestamp
+    .join('\n')
+    .trim();
+}
+function deepCacheKey(packet, cashContext, seats) {
+  const bucket = (cashContext && cashContext.bucket) || 'none';
+  const seatFp = seats.map(x => x.seat + ':' + x.provider + ':' + x.model).sort().join('|');
+  return crypto.createHash('sha256')
+    .update(normPacket(packet) + '\u0000' + bucket + '\u0000' + seatFp)
+    .digest('hex');
+}
+function deepCacheGet(key) {
+  const hit = DEEP_CACHE.get(key);
+  if (!hit) return null;
+  const age = Date.now() - hit.ts;
+  if (age > DEEP_TTL_MS) { DEEP_CACHE.delete(key); return null; }
+  return { data: hit.data, ageMs: age, cachedAt: hit.ts };
+}
+function deepCacheSet(key, data) {
+  // Refuse to cache a degraded run — an empty committee is not a result worth replaying.
+  if (!data || !Array.isArray(data.models) || !data.models.length) return false;
+  if (data.seatsResponded === 0) return false;
+  DEEP_CACHE.set(key, { ts: Date.now(), data });
+  if (DEEP_CACHE.size > 40) {           // cheap sweep: drop anything already expired
+    const now = Date.now();
+    for (const [k, v] of DEEP_CACHE) if (now - v.ts > DEEP_TTL_MS) DEEP_CACHE.delete(k);
+  }
+  return true;
+}
+
 app.post('/api/deep-triggers', async (req, res) => {
   const packet = req.body && req.body.packet;
   const cashContext = (req.body && req.body.cashContext) || null; // {bucket:'plan'|'discretionary'|'drypowder', amount?, monthlyLimit?}; ring-fenced cash is never sent
+  const forceFresh = !!(req.body && req.body.fresh);
   if (!packet || typeof packet !== 'string') return res.status(400).json({ error: 'missing packet' });
 
   const TASK = loadPrompt('deep-triggers.md');
   const ROLES = loadRoles();
   const seats = loadSeats().filter(s => providerHasKey(s.provider));
+
+  // Cache lookup happens AFTER seats are known so the key reflects the live seat config.
+  const CACHE_KEY = deepCacheKey(packet, cashContext, seats);
+  if (!forceFresh) {
+    const hit = deepCacheGet(CACHE_KEY);
+    if (hit) {
+      return res.json(Object.assign({}, hit.data, {
+        cached: true, cachedAt: hit.cachedAt, ageMs: hit.ageMs, ttlMs: DEEP_TTL_MS
+      }));
+    }
+  }
+
+  // Daily cap is checked only once a cache miss is certain: a served cache hit makes no
+  // upstream call, so charging it against the allowance would be wrong.
+  const capDT = await bumpUsage('deep-triggers');
+  if (!capDT.allowed) return res.status(429).json({ error: 'daily_limit_reached', used: capDT.used, cap: capDT.cap, note: 'Daily Deep Triggers allowance reached. It resets at midnight UTC.' });
 
   // Committee memory — feed the committee its own recent track record so it can self-critique
   // (repeating the same call? was advice acted on? did past calls look right?). Best-effort.
@@ -725,7 +1013,7 @@ app.post('/api/deep-triggers', async (req, res) => {
         sbRead('journal', 8).catch(() => [])
       ]);
       MEMORY = buildMemory(runs, journal);
-    } catch (_) { /* no memory this run */ }
+    } catch (e) { logUpstream('memory:read', e); /* no memory this run */ }
   }
   const SYSTEM = loadPrompt('system-investing.md') + VERDICT_GUIDE + (MEMORY ? '\n\n' + MEMORY : '');
 
@@ -762,7 +1050,9 @@ app.post('/api/deep-triggers', async (req, res) => {
       providerUsed: m ? (m.providerUsed || s.provider) : null,
       usedFallback: m ? !!m.usedFallback : false,
       verdict: m ? m.verdict : null, independentVerdict: m ? m.independentVerdict : null,
-      reason: m ? null : shortReason(failures[s.seat]), reasonDetail: m ? null : (failures[s.seat] || null)
+      // reasonDetail (raw upstream body) REMOVED step 3 — `reason` above is the classified
+      // form and carries the same signal. Raw text goes to the Render log only.
+      reason: m ? null : shortReason(failures[s.seat])
     };
   });
   if (!models.length) {
@@ -834,7 +1124,11 @@ app.post('/api/deep-triggers', async (req, res) => {
     strongestArgument: (synth && synth.strongestArgument) || '',
     weakestAssumption: (synth && synth.weakestAssumption) || models.map(m => m.weakestAssumption).filter(Boolean)[0] || '',
     risk: (synth && synth.riskWarning) || models.map(m => m.risk).filter(Boolean)[0] || '',
-    ifIHad1000: (synth && synth.ifIHad1000) || models.map(m => m.deploy).filter(Boolean)[0] || null,
+    // V2 (Ruling 3): ifIHad1000 is RETIRED. The chair is no longer asked for a dollar split,
+    // and none is derived from seat commentary. The Monthly Plan destination is set by written
+    // policy; a second allocation engine competing with the resolved action is the exact
+    // single-authority violation V2 exists to remove. Always null.
+    ifIHad1000: null,
     idiotGuide: (synth && synth.idiotGuide) || null,
     synthesised: !!synth, synthBy: synthModel ? synthModel.provider : null,
     rounds: DEBATE_ROUNDS, seats: models.length,
@@ -844,11 +1138,17 @@ app.post('/api/deep-triggers', async (req, res) => {
 
   // Post-synthesis resolution: honest colour + bucket-aware action. Does NOT change the verdict.
   try { out.resolution = resolveCommitteeAction({ verdict: out.verdict, consensus: out.consensus, seatsResponded: out.seatsResponded, seatsConfigured: out.seatsConfigured, cashContext }); }
-  catch (e) { out.resolution = { error: String(e.message) }; }
+  // Our own resolver, not an upstream provider — the message is safe and diagnostic
+  // (committee-resolver throws on unknown bucket names). Logged as well as returned.
+  catch (e) { logUpstream('resolver', e); out.resolution = { error: String(e.message) }; }
 
-  // GEOPOLITICAL RISK OFFICER (Grok) — separate from the voting committee, not in the tally.
+  // GEOPOLITICAL RISK OFFICER (Gemini, with Google Search grounding) — separate from the
+  // voting committee, not in the tally. NOTE: not Grok/xAI; xAI is not a production dependency.
   out.geoRisk = await runGeoOfficer(req.body && req.body.geoPacket, verdict, ROLES);
-  res.json(out);
+
+  // Cache the completed run (no-op for degraded/empty runs — see deepCacheSet).
+  deepCacheSet(CACHE_KEY, out);
+  res.json(Object.assign({}, out, { cached: false, cachedAt: Date.now(), ageMs: 0, ttlMs: DEEP_TTL_MS }));
 
   // History — log this run server-side for the long-term dataset (per-seat verdicts + full synthesis + packet).
   // Fire-and-forget: never blocks or crashes the response. This is the long-term performance goldmine.
@@ -863,7 +1163,7 @@ app.post('/api/deep-triggers', async (req, res) => {
         idiotGuide: out.idiotGuide, synthesised: out.synthesised, synthBy: out.synthBy, geoRisk: out.geoRisk
       },
       packet
-    }]).catch(() => {});
+    }]).catch(e => logUpstream('committee_runs:write', e));
   }
 });
 
@@ -873,7 +1173,10 @@ app.post('/api/deep-triggers', async (req, res) => {
  * Read-only and advisory: it never trades, and the user approves every action himself. */
 const CHAT_SYS = 'You are the assistant built into Andrew\u2019s personal Investing Command Centre. ' +
   'You help him think through his own portfolio and general finance questions \u2014 comparisons, trade-offs, education, sanity-checks. ' +
-  'Treat the LIVE SNAPSHOT below as the ground truth for his current holdings, cash, targets, scores and latest committee verdict. ' +
+  'Treat the LIVE SNAPSHOT below as the ground truth for his current holdings, cash, scores and latest committee verdict. ' +
+  'His written Investment Policy is authoritative: Monthly Plan = BHD500 into ISAC.L, ON POLICY. There are no target allocation percentages \u2014 ' +
+  'current composition is descriptive only. Never recommend rebalancing or redirecting the Monthly Plan because weights differ from some target. ' +
+  'Treasury Bills and Savings are ring-fenced and non-deployable; never treat them as available capital. ' +
   'Be concise and direct. Give analysis and options; never instruct him to execute \u2014 he approves every trade himself on eToro and you cannot trade. ' +
   'Do not invent prices or figures not in the snapshot or general knowledge; if something isn\u2019t there, say so plainly. ' +
   'You are not a licensed financial adviser; frame conclusions as his decision to make.';
@@ -888,36 +1191,37 @@ app.post('/api/ask', async (req, res) => {
       .map(m => ({ role: m.role, content: m.content.slice(0, 4000) }))
       .slice(-20);
     if (!msgs.length || msgs[msgs.length - 1].role !== 'user') return res.status(400).json({ error: 'Need a question to answer.' });
+    const capAsk = await bumpUsage('ask');
+    if (!capAsk.allowed) return res.status(429).json({ error: 'Daily chat allowance reached (' + capAsk.used + '/' + capAsk.cap + '). It resets at midnight UTC.' });
     const context = typeof body.context === 'string' ? body.context.slice(0, 10000) : '';
     const system = CHAT_SYS + (context ? '\n\n=== LIVE SNAPSHOT (his command centre, right now) ===\n' + context : '\n\n(No live snapshot was provided this turn.)');
     const reply = useAnthropic ? await callAnthropicChat(msgs, system, CHAT_MODEL) : await callGeminiChat(msgs, system, CHAT_MODEL);
     if (!reply) return res.status(502).json({ error: 'The assistant returned an empty response \u2014 try again.' });
     res.json({ reply, model: CHAT_MODEL });
   } catch (e) {
-    res.status(502).json({ error: String((e && e.message) || e).slice(0, 200) });
+    logUpstream('ask', e);
+    res.status(502).json({ error: shortReason(String((e && e.message) || e)) });
   }
 });
 const PROMPT_FILES = ['system-investing.md', 'deep-triggers.md', 'ai-roles.json'];
 app.get('/api/prompts', (req, res) => {
-  const out = {};
-  PROMPT_FILES.forEach(f => out[f] = loadPrompt(f));
-  res.json({ dir: PROMPT_DIR, files: PROMPT_FILES, prompts: out, ts: Date.now() });
+  /* `dir: PROMPT_DIR` REMOVED (step 3) — it leaked the absolute server path.
+   * `sources` ADDED (step 7): the frontend's "Prompt files" light previously went GREEN
+   * whenever this endpoint responded, because it only counted filenames. It could not
+   * distinguish a built-in default from a file override, so it asserted an integrity it
+   * had never checked. Now the backend says which each one is and the light can mean
+   * something. loadPrompt() precedence is unchanged — a file still wins. */
+  const out = {}, sources = {};
+  PROMPT_FILES.forEach(f => { out[f] = loadPrompt(f); sources[f] = _psource[f] || 'default'; });
+  res.json({ files: PROMPT_FILES, prompts: out, sources, overrides: PROMPT_FILES.filter(f => sources[f] === 'file'), ts: Date.now() });
 });
-app.post('/api/prompts', (req, res) => {
-  const { file, content } = req.body || {};
-  if (!PROMPT_FILES.includes(file)) return res.status(400).json({ error: 'unknown file', allowed: PROMPT_FILES });
-  if (typeof content !== 'string') return res.status(400).json({ error: 'content must be a string' });
-  if (file === 'ai-roles.json') { try { JSON.parse(content); } catch (e) { return res.status(400).json({ error: 'invalid JSON: ' + e.message }); } }
-  try {
-    fs.mkdirSync(PROMPT_DIR, { recursive: true });
-    fs.writeFileSync(path.join(PROMPT_DIR, file), content, 'utf8');
-    delete _pcache[file];
-    res.json({ ok: true, file, savedBytes: content.length, ts: Date.now() });
-  } catch (e) {
-    res.status(500).json({ error: 'write failed (filesystem may be read-only on this host): ' + e.message });
-  }
-});
-
+/* POST /api/prompts REMOVED (step 2, owner ruling).
+ * It was an unauthenticated remote write into the committee's own instructions and had no
+ * caller anywhere in the shipped frontend — only a GET, in the system check. Deleting the
+ * route removes that attack outright rather than defending against it.
+ * loadPrompt() precedence is DELIBERATELY UNCHANGED: a file in prompts/ still wins over the
+ * built-in DEFAULTS. The override mechanism is legitimate; only the remote write is gone.
+ * Prompts are now changed by committing a file to the backend repo. */
 /* ───────── Our own portfolio history DB (independent of eToro) ─────────
  * Durable store for snapshots + decision journal. The frontend is local-first
  * (localStorage) and mirrors here so history survives device changes.
@@ -985,6 +1289,49 @@ async function sbRead(type, limit) {
   return rows.reverse();   // return oldest-first to match the file store
 }
 
+
+/* ── DURABLE DAILY USAGE CAP (step 5) ───────────────────────────────────────────
+ * Bounds what a STOLEN TOKEN or a runaway client can spend. Authentication is what
+ * stops anonymous quota drain; this is the second line behind it.
+ *
+ * ATOMICITY IS THE WHOLE POINT. Do NOT reimplement this as
+ *      read count -> count + 1 -> write it back
+ * in JavaScript. Two simultaneous requests would both read 7, both conclude 8 is
+ * within the cap, and both proceed — the limit fails exactly when parallel requests
+ * arrive, which is the only case it exists for. This file is already parallel by
+ * nature (Promise.allSettled in the committee rounds, Promise.all in prices).
+ * The increment and the check therefore happen in ONE statement inside Postgres;
+ * Node sends one call and receives an allowed/denied answer.
+ *
+ * Requires the SQL in supabase-usage-cap.sql to have been applied.
+ *
+ * FAILS OPEN, deliberately. If Supabase is unreachable or the function is missing,
+ * the request proceeds and the reason is logged. That is correct HERE and only here:
+ * the caller has already passed authentication, so refusing would lock the owner out
+ * of his own dashboard for no security gain. Auth fails closed; this does not.       */
+const DAILY_CAPS = {
+  'deep-triggers': Math.max(1, +process.env.CAP_DEEP_TRIGGERS || 60),
+  'ask':           Math.max(1, +process.env.CAP_ASK || 250)
+};
+async function bumpUsage(endpoint) {
+  const cap = DAILY_CAPS[endpoint];
+  if (!cap || !sbOn()) return { allowed: true, skipped: 'no_store' };
+  try {
+    const r = await fetch(`${SB_URL}/rest/v1/rpc/bump_usage`, {
+      method: 'POST', headers: sbHeaders(true),
+      body: JSON.stringify({ p_endpoint: endpoint, p_limit: cap })
+    });
+    if (!r.ok) throw new Error('rpc ' + r.status + ' ' + (await r.text()).slice(0, 120));
+    const rows = await r.json();
+    const row = Array.isArray(rows) ? rows[0] : rows;
+    if (!row || typeof row.allowed !== 'boolean') throw new Error('unexpected rpc shape');
+    return row;
+  } catch (e) {
+    logUpstream('usage-cap:' + endpoint, e);
+    return { allowed: true, skipped: 'unavailable' };
+  }
+}
+
 app.get('/api/history', async (req, res) => {
   const type = req.query.type;
   const limit = Math.min(500, +req.query.limit || 200);
@@ -995,7 +1342,7 @@ app.get('/api/history', async (req, res) => {
       if (type === 'committee_runs') return res.json({ committee_runs: await sbRead('committee_runs', limit), backend: 'supabase', ts: Date.now() });
       const [snapshots, journal] = await Promise.all([sbRead('snapshots', limit), sbRead('journal', limit)]);
       return res.json({ snapshots, journal, backend: 'supabase', ts: Date.now() });
-    } catch (e) { /* fall through to file store */ }
+    } catch (e) { logUpstream('history:read', e); /* fall through to file store */ }
   }
   const h = histLoad();
   if (type === 'snapshots') return res.json({ snapshots: h.snapshots.slice(-limit), backend: 'file', ts: Date.now() });
@@ -1009,7 +1356,7 @@ app.post('/api/history', async (req, res) => {
   if (!incoming.length) return res.status(400).json({ error: 'no entry/entries provided' });
   if (sbOn()) {
     try { await sbAppend(type, incoming); return res.json({ ok: true, type, count: incoming.length, backend: 'supabase', ts: Date.now() }); }
-    catch (e) { /* fall back to file store below, never crash */ }
+    catch (e) { logUpstream('history:write', e); /* fall back to file store below, never crash */ }
   }
   const h = histLoad();
   if (type === 'journal') { incoming.forEach(e => { const i = h.journal.findIndex(x => x.id === e.id); if (i >= 0) h.journal[i] = e; else h.journal.push(e); }); h.journal = h.journal.slice(-500); }
