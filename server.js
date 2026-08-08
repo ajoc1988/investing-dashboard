@@ -482,6 +482,144 @@ app.get('/api/price-history', async (req, res) => {
   }
 });
 
+
+/* ═══════════ TEMPORARY DIAGNOSTIC — STOOQ PROVIDER PROBE ══════════════════════
+ * REMOVE THIS BLOCK once the provider decision is made. It exists to answer questions
+ * that cannot be answered from documentation, and for no other purpose.
+ *
+ * SCOPE, deliberately narrow:
+ *   - Stooq ONLY. No Yahoo call is made anywhere in this file. That is an owner ruling:
+ *     probing Yahoo would itself be the automated access its terms prohibit, and the test
+ *     is only worth running if the result would be acted on.
+ *   - READ ONLY. Nothing is written to Supabase, no schema is touched, nothing feeds the
+ *     dashboard, the committee, or any pricing path. It is inert with respect to production.
+ *   - Authenticated (it is not in PUBLIC_PATHS, so the allowlist protects it by default).
+ *
+ * REPORTING RULE: statuses are reported literally. A 403 is a 403, a 429 is a 429, an
+ * API-key interstitial is named as such. Nothing is ever substituted with zero, "temporary
+ * outage", or an empty result that could be mistaken for "no data exists".                */
+
+const STOOQ_KEY = process.env.STOOQ_API_KEY || '';
+
+/* Candidate symbol mappings. Stooq's formats for LSE and HKEX are UNVERIFIED — the
+ * documentation is not publicly readable — so each instrument gets more than one candidate
+ * and the probe reports which, if any, actually returns data. Guessing one and reporting
+ * "not found" would tell us nothing about whether the instrument or the guess was wrong. */
+const STOOQ_CANDIDATES = [
+  { instrument: 'ISAC  (iShares MSCI ACWI UCITS, LSE, USD line)', tries: ['isac.uk', 'isac.l'] },
+  { instrument: 'XIAOMI 1810 (HKEX)',                             tries: ['1810.hk', '1810.hk.us'] },
+  { instrument: 'VOO   (Vanguard S&P 500, US)',                   tries: ['voo.us', 'voo'] },
+  { instrument: 'MSFT  (Microsoft, US)',                          tries: ['msft.us', 'msft'] },
+  { instrument: 'SERV  (Serve Robotics, US)',                     tries: ['serv.us', 'serv'] }
+];
+
+const sleepMs = (ms) => new Promise(r => setTimeout(r, ms));
+
+/* Classify what actually came back. This is the heart of the probe: an HTML page saying
+ * "get your apikey" is a completely different finding from an empty CSV, and conflating
+ * them is how you conclude "no coverage" when the real answer is "no permission". */
+function classifyStooqBody(status, ctype, body) {
+  const b = String(body || '');
+  const head = b.slice(0, 400);
+  if (status === 403) return { looksLike: 'http-403-forbidden', detail: head };
+  if (status === 429) return { looksLike: 'http-429-rate-limited', detail: head };
+  if (status >= 500)  return { looksLike: 'http-5xx-server-error', detail: head };
+  if (/get_apikey|get your apikey|apikey/i.test(head) && /<html|<!doctype/i.test(head))
+    return { looksLike: 'API-KEY-REQUIRED (HTML interstitial, not data)', detail: head };
+  if (/<html|<!doctype/i.test(head))
+    return { looksLike: 'HTML page returned instead of CSV', detail: head };
+  if (/^date,/i.test(b.trim()))
+    return { looksLike: 'csv-with-expected-header', detail: null };
+  if (/no data|n\/a/i.test(head) || !b.trim())
+    return { looksLike: 'empty-or-no-data', detail: head };
+  return { looksLike: 'unrecognised', detail: head };
+}
+
+function parseStooqCsv(body) {
+  const lines = String(body || '').trim().split(/\r?\n/).filter(Boolean);
+  if (lines.length < 2) return null;
+  const header = lines[0].split(',').map(x => x.trim());
+  const rows = lines.slice(1).map(l => l.split(','));
+  const dates = rows.map(r => r[0]).filter(Boolean);
+  return {
+    header,
+    rowCount: rows.length,
+    firstRowDate: dates[0] || null,
+    lastRowDate: dates[dates.length - 1] || null,
+    sampleFirstRow: rows[0] || null,
+    sampleLastRow: rows[rows.length - 1] || null,
+    // Stooq has been reported to return DESCENDING dates while most sources ascend.
+    // Getting this backwards silently inverts every "next close" the Wildcard would compute.
+    dateOrder: dates.length > 1 ? (dates[0] < dates[dates.length - 1] ? 'ascending' : 'descending') : 'unknown'
+  };
+}
+
+async function probeStooqOnce(symbol, interval) {
+  const qs = new URLSearchParams({ s: symbol, i: interval });
+  if (STOOQ_KEY) qs.set('apikey', STOOQ_KEY);
+  const url = 'https://stooq.com/q/d/l/?' + qs.toString();
+  const started = Date.now();
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 12000);
+    let r, body = '';
+    try {
+      r = await fetch(url, { signal: ctrl.signal, headers: { 'Accept': 'text/csv,*/*' } });
+      body = await r.text();
+    } finally { clearTimeout(timer); }
+    const cls = classifyStooqBody(r.status, r.headers.get('content-type'), body);
+    const csv = cls.looksLike === 'csv-with-expected-header' ? parseStooqCsv(body) : null;
+    return {
+      symbol, interval, ok: r.ok, httpStatus: r.status,
+      contentType: r.headers.get('content-type') || null,
+      bytes: body.length, ms: Date.now() - started,
+      looksLike: cls.looksLike,
+      bodyHead: cls.detail ? cls.detail.slice(0, 300) : null,   // literal, never sanitised away
+      csv
+    };
+  } catch (e) {
+    // A network/timeout failure is reported as exactly that. It is NOT "no data".
+    return { symbol, interval, ok: false, httpStatus: null, ms: Date.now() - started,
+      looksLike: 'request-failed-before-a-response', error: String((e && e.message) || e).slice(0, 200), csv: null };
+  }
+}
+
+app.get('/api/probe/stooq', async (req, res) => {
+  const results = [];
+  /* Sequential with a deliberate gap. This is a diagnostic against someone else's free
+   * service; hammering it in parallel would be both rude and a good way to earn the 429
+   * we are trying to measure. */
+  for (const inst of STOOQ_CANDIDATES) {
+    for (const sym of inst.tries) {
+      for (const interval of ['d', '60']) {       // 'd' = daily, '60' = 60-minute (availability UNVERIFIED)
+        const r = await probeStooqOnce(sym, interval);
+        results.push({ instrument: inst.instrument, ...r });
+        await sleepMs(400);
+      }
+    }
+  }
+
+  /* Stability: does behaviour hold across several low-rate calls, or does it degrade?
+   * A first call succeeding proves very little on a service with an undocumented quota. */
+  const stability = [];
+  for (let i = 1; i <= 5; i++) {
+    const r = await probeStooqOnce('msft.us', 'd');
+    stability.push({ attempt: i, httpStatus: r.httpStatus, looksLike: r.looksLike, ms: r.ms });
+    await sleepMs(700);
+  }
+
+  res.json({
+    probe: 'stooq', ranAt: new Date().toISOString(),
+    apiKeyConfigured: !!STOOQ_KEY,
+    apiKeyNote: STOOQ_KEY ? 'STOOQ_API_KEY is set on the server.'
+      : 'NO STOOQ_API_KEY set. Since ~April 2026 Stooq is reported to require one; expect the API-key interstitial rather than CSV.',
+    intervalsTried: { d: 'daily', '60': '60-minute (availability unverified)' },
+    caveat: 'Diagnostic only. Nothing here is stored, and nothing feeds any pricing, dashboard or committee path. Statuses are reported literally.',
+    results, stability, ts: Date.now()
+  });
+});
+/* ═══════════ END TEMPORARY DIAGNOSTIC ═════════════════════════════════════════ */
+
 /* ───────── /api/market ───────── */
 app.get('/api/market', async (req, res) => {
   try {
