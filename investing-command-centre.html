@@ -1759,9 +1759,31 @@ async function runSystemCheck(){
   if(health){const k=health.keys||{};const seats=(typeof health.committeeSeats==="number")?health.committeeSeats:["openai","anthropic","gemini","perplexity","openrouter"].filter(x=>k[x]).length; push("AI committee keys", seats>0?"GREEN":"AMBER", seats>0?(seats+" committee seat(s) active — debate + synthesiser running."):"No AI keys — committee runs in manual copy/paste mode.");}
   else push("AI committee keys","AMBER","Copy/paste mode (no backend).");
   // History store
-  if(base){push("History store", history?"GREEN":"AMBER", history?"Backend history store reachable. Local memory also active ("+S.history.length+" snapshots).":"Backend store unreachable — local memory still active ("+S.history.length+" snapshots).");}
+  /* Was: GREEN whenever the endpoint replied. But /api/history reports WHICH store answered —
+     'supabase' (durable) or 'file' (Render's disk, wiped on every sleep) — and that was being
+     thrown away. So the light read GREEN while the permanent record was going somewhere
+     temporary. Same defect as the old prompt light, on the data that matters most. */
+  if(base){
+    const hb=history&&history.backend;
+    if(!history) push("History store","AMBER","Backend store unreachable — your browser copy is still safe ("+S.history.length+" snapshots).");
+    else if(hb==="supabase") push("History store","GREEN","Durable store (Supabase) live. Browser copy also held ("+S.history.length+" snapshots).");
+    else push("History store","AMBER","Backend answered, but it fell back to the TEMPORARY file store — the durable database isn't responding. Anything written server-side is lost when the server sleeps. Your browser copy ("+S.history.length+" snapshots) is unaffected.");
+  }
   else push("History store","GREEN","Local memory active ("+S.history.length+" snapshots, "+S.journal.length+" journal entries).");
   // Prompt files
+  /* Observed client address, straight from the backend (step 4). This exists because the
+     rate limiter counts per IP, and Express was previously reading Render's proxy address
+     rather than the visitor's — which put every client on earth in ONE bucket. Reading it
+     from the URL bar is impossible (a plain browser request carries no token), so it is
+     reported here, on an authenticated call, rather than via a public debug endpoint. */
+  if(health && health.client){
+    const c=health.client, ip=String(c.ip||""), priv=/^(10\.|127\.|::1|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(ip);
+    push("Server sees you as", priv?"AMBER":"GREEN",
+      (ip?esc(ip):"unknown")+(c.xff?" · forwarded: "+esc(String(c.xff)):"")+" · trust proxy "+esc(String(c.trustProxy))+
+      (priv?" — that's an internal address, so the rate limit is still shared across all callers. Tell Claude."
+           :" — a real visitor address, so the rate limit now counts per client."));
+  }
+
   /* Was: counted filenames and went GREEN whenever the backend replied — it never read the
      content, so it asserted an integrity it had not checked. The backend now reports whether
      each prompt is a built-in default or a file override, so this can state a real fact. */
