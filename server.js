@@ -301,28 +301,165 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+
+/* ══════════════ PRICE FEED RELIABILITY ══════════════════════════════════════════
+ * The gate for the Paper Wildcard. Three problems this addresses, in order of severity:
+ *
+ *  1. NO HISTORY EXISTED. Nothing recorded what a price actually did. The Wildcard must
+ *     record what really happened to a price, so it cannot be built on a system with no
+ *     memory of prices. Every quote observed is now written to investing.price_observations.
+ *     Deliberately named "observations", not OHLC — see the migration comment.
+ *
+ *  2. ONE PROVIDER, PARTIAL COVERAGE. Finnhub's free tier serves US listings. Non-US
+ *     holdings (e.g. .L / .HK lines) return nothing and were silently absent from the
+ *     response, so the frontend could not tell "no coverage" from "not asked for".
+ *     Coverage is now reported explicitly per symbol.
+ *
+ *  3. AN ACCURACY DEFECT WAS ALREADY KNOWN. See the note above estimateTodayPl: Finnhub's
+ *     daily percentage came back roughly 9x reality, which is why Today P/L is blank. A
+ *     single unverifiable source cannot be trusted with the Wildcard's evidence, so this
+ *     layer is built provider-agnostic and cross-checks whenever more than one is enabled.
+ *
+ * NO NEW PROVIDER IS ENABLED HERE. "Yahoo redundancy" is on the do-not-build list, so the
+ * registry below has exactly one live entry and the shape needed to add another as a config
+ * change rather than a rewrite. Adding one is the owner's call, not this file's.          */
+
+const PRICE_STALE_MS = 15 * 60 * 1000;   // a quote older than this is reported as stale, not fresh
+const PRICE_DISPUTE_PC = 1.0;            // two sources differing by more than this = disputed, no price
+
+// Each adapter: (symbols) -> { SYM: {price, asOf} }. Must never throw; must omit what it cannot serve.
+const PRICE_SOURCES = {
+  finnhub: {
+    on: () => !!FINNHUB,
+    covers: 'US listings only (free tier)',
+    fetch: async (symbols) => {
+      const out = {};
+      await Promise.all(symbols.map(async sym => {
+        try {
+          const j = await getJson(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(sym)}&token=${FINNHUB}`);
+          // j.c === 0 is Finnhub's "I don't have this symbol" answer, NOT a price of zero.
+          if (j && typeof j.c === 'number' && j.c > 0) {
+            out[sym] = { price: j.c, dp: num(j.dp), change: num(j.d), prevClose: num(j.pc), asOf: j.t ? j.t * 1000 : Date.now() };
+          }
+        } catch (e) { logUpstream('price:finnhub:' + sym, e); }
+      }));
+      return out;
+    }
+  }
+  /* To add a second source later: another entry with the same shape. The cross-check below
+   * activates automatically once two are live. Not doing that unilaterally. */
+};
+const livePriceSources = () => Object.keys(PRICE_SOURCES).filter(k => PRICE_SOURCES[k].on());
+
+// Record what we saw. Fire-and-forget, never blocks or fails a response.
+async function recordPrices(quotes, source) {
+  if (!sbOn()) return;
+  const syms = Object.keys(quotes || {});
+  if (!syms.length) return;
+  await Promise.all(syms.map(async sym => {
+    const px = quotes[sym] && quotes[sym].price;
+    if (!(px > 0)) return;
+    try {
+      const r = await fetch(`${SB_URL}/rest/v1/rpc/record_price`, {
+        method: 'POST', headers: sbHeaders(true),
+        body: JSON.stringify({ p_symbol: sym, p_price: px, p_source: source })
+      });
+      if (!r.ok) throw new Error('rpc ' + r.status + ' ' + (await r.text()).slice(0, 120));
+    } catch (e) { logUpstream('price:record:' + sym, e); }
+  }));
+}
+
+/* Merge across sources. Where two disagree by more than PRICE_DISPUTE_PC, NO price is
+ * returned for that symbol and it is marked disputed. Picking one silently is how a wrong
+ * number ends up presented as fact — and this system's whole premise is that an honest
+ * "no value" beats a confident wrong one. */
+function mergeQuotes(bySource) {
+  const merged = {}, disputed = [], names = Object.keys(bySource);
+  const allSyms = [...new Set(names.flatMap(n => Object.keys(bySource[n])))];
+  for (const sym of allSyms) {
+    const got = names.filter(n => bySource[n][sym]).map(n => ({ src: n, ...bySource[n][sym] }));
+    if (!got.length) continue;
+    if (got.length === 1) { merged[sym] = { ...got[0], sources: [got[0].src], agreement: 'single-source' }; continue; }
+    const prices = got.map(g => g.price);
+    const spread = (Math.max(...prices) - Math.min(...prices)) / Math.min(...prices) * 100;
+    if (spread > PRICE_DISPUTE_PC) {
+      disputed.push({ symbol: sym, spreadPc: +spread.toFixed(2), sources: got.map(g => ({ src: g.src, price: g.price })) });
+      continue;                                   // deliberately no price
+    }
+    merged[sym] = { ...got[0], sources: got.map(g => g.src), agreement: 'agreed', spreadPc: +spread.toFixed(2) };
+  }
+  return { merged, disputed };
+}
+
 /* ───────── /api/prices ───────── */
 app.get('/api/prices', async (req, res) => {
   const symbols = String(req.query.symbols || 'VOO,QQQ,NVDA,MSFT,VXUS,SCHD')
     .split(',').map(s => s.trim().toUpperCase()).filter(s => /^[A-Z0-9.\-]{1,12}$/.test(s))
     .filter((v, i, a) => a.indexOf(v) === i).sort().slice(0, 25);
-  /* Sorted + de-duplicated + shape-validated (step 5). The cache key is built from this list,
-   * so previously VOO,QQQ and QQQ,VOO were two entries and arbitrary junk symbols could mint
-   * unlimited ones. Normalising collapses the permutations; the regex rejects the junk. */
+  /* Sorted + de-duplicated + shape-validated: the cache key is built from this list, so
+   * permutations previously minted separate entries and junk symbols could mint unlimited ones. */
+
+  const live = livePriceSources();
+  if (!live.length) {
+    return res.json({ prices: {}, sources: [], covered: [], unavailable: symbols, disputed: [],
+      note: 'No price source configured (set FINNHUB_API_KEY).', ts: Date.now() });
+  }
+
   try {
     const data = await cached('prices:' + symbols.join(','), 30000, async () => {
-      const out = {};
-      if (!FINNHUB) return { prices: {}, source: 'none', note: 'set FINNHUB_API_KEY' };
-      await Promise.all(symbols.map(async sym => {
-        try {
-          const j = await getJson(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${FINNHUB}`);
-          if (j && j.c) out[sym] = { price: j.c, dp: num(j.dp), change: num(j.d), prevClose: num(j.pc) };
-        } catch (_) { /* leave symbol out */ }
-      }));
-      return { prices: out, source: 'finnhub' };
+      const bySource = {};
+      await Promise.all(live.map(async n => { bySource[n] = await PRICE_SOURCES[n].fetch(symbols); }));
+      const { merged, disputed } = mergeQuotes(bySource);
+
+      /* Record ONLY on a cache miss. A served cache hit is the same observation again;
+       * counting it would inflate the observation count and make the history look denser
+       * than the evidence actually is. */
+      recordPrices(merged, live.join('+')).catch(() => {});
+
+      const covered = Object.keys(merged);
+      /* Explicit, not implied. Previously a symbol the feed could not serve was simply
+       * absent from the response, so the caller could not distinguish "no coverage" from
+       * "not requested". Non-US listings hit this constantly on Finnhub's free tier. */
+      const unavailable = symbols.filter(x => !merged[x] && !disputed.some(d => d.symbol === x));
+      return {
+        prices: merged, sources: live, covered, unavailable,
+        disputed,
+        coverageNote: live.map(n => n + ': ' + PRICE_SOURCES[n].covers).join(' · ')
+      };
     });
-    res.json({ ...data, ts: Date.now() });
-  } catch (e) { res.json({ prices: {}, source: 'error', error: publicErr('prices', e), ts: Date.now() }); }
+    const now = Date.now();
+    const stale = Object.entries(data.prices || {})
+      .filter(([, q]) => q.asOf && (now - q.asOf) > PRICE_STALE_MS)
+      .map(([k]) => k);
+    res.json({ ...data, stale, staleAfterMs: PRICE_STALE_MS, ts: now });
+  } catch (e) {
+    res.json({ prices: {}, sources: live, covered: [], unavailable: symbols, disputed: [],
+      error: publicErr('prices', e), ts: Date.now() });
+  }
+});
+
+/* ───────── /api/price-history ─────────
+ * Serves what was actually observed. Days with no observation have no row and are simply
+ * absent — nothing is interpolated, averaged or carried forward. A gap is shown as a gap.
+ * See the migration comment: these are observations, NOT exchange OHLC bars. */
+app.get('/api/price-history', async (req, res) => {
+  const symbol = String(req.query.symbol || '').trim().toUpperCase();
+  const days = Math.min(365, Math.max(1, +req.query.days || 90));
+  if (!/^[A-Z0-9.\-]{1,12}$/.test(symbol)) return res.status(400).json({ error: 'symbol required' });
+  if (!sbOn()) return res.json({ symbol, rows: [], note: 'No durable store configured.', ts: Date.now() });
+  try {
+    const r = await fetch(`${SB_URL}/rest/v1/price_observations?symbol=eq.${encodeURIComponent(symbol)}&select=*&order=day.desc&limit=${days}`, { headers: sbHeaders(false) });
+    if (!r.ok) throw new Error('supabase ' + r.status + ' ' + (await r.text()).slice(0, 120));
+    const rows = (await r.json()).reverse();
+    res.json({
+      symbol, rows, count: rows.length,
+      note: 'Observed prices, not exchange OHLC. first_seen_price is the first quote this system saw that day, not the market open.',
+      ts: Date.now()
+    });
+  } catch (e) {
+    logUpstream('price-history', e);
+    res.status(502).json({ symbol, rows: [], error: shortReason(String((e && e.message) || e)), ts: Date.now() });
+  }
 });
 
 /* ───────── /api/market ───────── */

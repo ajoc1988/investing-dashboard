@@ -1736,7 +1736,7 @@ async function runSystemCheck(){
     try{health=await J(base+"/api/health");backendUp=true;}catch(e){push("Backend connection","RED","Unreachable: "+e.message+". Check the URL / that the server is running.");}
     if(backendUp){
       push("Backend connection","GREEN","Reachable at "+base+".");
-      const settled=await Promise.allSettled([J(base+"/api/portfolio"),J(base+"/api/prices?symbols=VOO"),J(base+"/api/market"),J(base+"/api/prompts"),J(base+"/api/history?limit=1")]);
+      const settled=await Promise.allSettled([J(base+"/api/portfolio"),J(base+"/api/prices?symbols="+syms().join(",")),J(base+"/api/market"),J(base+"/api/prompts"),J(base+"/api/history?limit=1")]);
       [portfolio,prices,market,prompts,history]=settled.map(s=>s.status==="fulfilled"?s.value:null);
     }
   } else {
@@ -1750,7 +1750,26 @@ async function runSystemCheck(){
   if(health){const e=health.keys&&health.keys.etoro; if(portfolio&&portfolio.source==="etoro")push("eToro read-only","GREEN","Connected, read-only — holdings syncing.");else if(portfolio&&portfolio.connected===false&&portfolio.error)push("eToro read-only","RED","Configured but failing: "+portfolio.error);else push("eToro read-only", e?"AMBER":"AMBER", e?"Key set but no holdings returned yet.":"Not configured — using manual portfolio.");}
   else push("eToro read-only","AMBER","Manual portfolio (no backend).");
   // Price feed
-  if(health){const ok=prices&&prices.prices&&prices.prices.VOO&&prices.prices.VOO.price; const kf=(health.keys||{}).finnhub; push("Price feed", ok?"GREEN":kf?"RED":"AMBER", ok?("VOO "+usd(prices.prices.VOO.price)+" returned."):kf?"Finnhub key set but no quote returned.":"No Finnhub key — prices are manual.");}
+  /* Was: asked for VOO alone and went GREEN if VOO came back — so it never tested whether the
+     feed covers the holdings actually owned. Finnhub's free tier serves US listings only, so a
+     non-US line (.L / .HK) has NEVER had a live price, and nothing on screen said so. It now
+     reports real coverage across the real portfolio. */
+  if(health){
+    const kf=(health.keys||{}).finnhub;
+    if(!prices){ push("Price feed", kf?"RED":"AMBER", kf?"Price source set but returned nothing.":"No price source — prices are manual."); }
+    else{
+      const cov=prices.covered||[], un=prices.unavailable||[], dis=prices.disputed||[], st=prices.stale||[], all=syms();
+      const held=all.filter(a=>(S.holdings[a]&&S.holdings[a].units>0));
+      const heldUncovered=held.filter(a=>un.indexOf(a)>=0);
+      let lvl = dis.length ? "AMBER" : heldUncovered.length ? "AMBER" : cov.length ? "GREEN" : "RED";
+      let msg = cov.length+" of "+all.length+" symbols priced live ("+esc((prices.sources||[]).join(", ")||"no source")+").";
+      if(heldUncovered.length) msg += " NO live price for holdings you own: "+heldUncovered.map(esc).join(", ")+" — those values come from eToro, not a price feed.";
+      if(dis.length) msg += " Sources disagree on "+dis.map(d=>esc(d.symbol)).join(", ")+" — no price shown rather than guessing.";
+      if(st.length) msg += " Stale: "+st.map(esc).join(", ")+".";
+      if(!heldUncovered.length && !dis.length && cov.length) msg += " Every holding you own has a live price.";
+      push("Price feed", lvl, msg);
+    }
+  }
   else push("Price feed", S.finnhubKey?"AMBER":"AMBER", S.finnhubKey?"Direct Finnhub key set (no backend).":"Manual / last-known prices.");
   // Macro feed
   if(health){const ok=market&&(market.vix!=null||market.y10!=null); const kr=(health.keys||{}).fred; push("Macro feed", ok?"GREEN":kr?"RED":"AMBER", ok?"FRED returning VIX / yields / CPI.":kr?"FRED key set but no data returned.":"No FRED key — macro is manual.");}
