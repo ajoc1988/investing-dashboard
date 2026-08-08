@@ -324,7 +324,23 @@ app.get('/api/health', (req, res) => {
  * registry below has exactly one live entry and the shape needed to add another as a config
  * change rather than a rewrite. Adding one is the owner's call, not this file's.          */
 
-const PRICE_STALE_MS = 15 * 60 * 1000;   // a quote older than this is reported as stale, not fresh
+const PRICE_STALE_MS = 15 * 60 * 1000;   // a quote older than this is stale — but ONLY while a session is running
+
+/* A quote from Friday's close is not "stale" on a Saturday, it is simply the last price that
+ * exists. The first build flagged it anyway, which would have cried wolf every weekend and
+ * every night — precisely the false alarm this project exists to avoid.
+ *
+ * Deliberately the UNION of US summer and winter session hours (13:30-21:00 UTC), so this
+ * never claims "closed" during a real session. NO HOLIDAY CALENDAR: on a market holiday this
+ * returns true and quotes may read stale. That errs toward flagging rather than hiding, which
+ * is the right way round — an unexpected "stale" invites a look, a wrongly hidden one does not. */
+function usMarketLikelyOpen(d) {
+  d = d || new Date();
+  const day = d.getUTCDay();
+  if (day === 0 || day === 6) return false;
+  const mins = d.getUTCHours() * 60 + d.getUTCMinutes();
+  return mins >= (13 * 60 + 30) && mins <= (21 * 60);
+}
 const PRICE_DISPUTE_PC = 1.0;            // two sources differing by more than this = disputed, no price
 
 // Each adapter: (symbols) -> { SYM: {price, asOf} }. Must never throw; must omit what it cannot serve.
@@ -428,10 +444,14 @@ app.get('/api/prices', async (req, res) => {
       };
     });
     const now = Date.now();
-    const stale = Object.entries(data.prices || {})
-      .filter(([, q]) => q.asOf && (now - q.asOf) > PRICE_STALE_MS)
-      .map(([k]) => k);
-    res.json({ ...data, stale, staleAfterMs: PRICE_STALE_MS, ts: now });
+    const open = usMarketLikelyOpen();
+    // Only meaningful while a session is running. Outside one, age is expected, not a fault.
+    const stale = open
+      ? Object.entries(data.prices || {}).filter(([, q]) => q.asOf && (now - q.asOf) > PRICE_STALE_MS).map(([k]) => k)
+      : [];
+    res.json({ ...data, stale, marketOpen: open, staleAfterMs: PRICE_STALE_MS,
+      marketNote: open ? null : 'US session closed — these are last-close prices, not stale data.',
+      ts: now });
   } catch (e) {
     res.json({ prices: {}, sources: live, covered: [], unavailable: symbols, disputed: [],
       error: publicErr('prices', e), ts: Date.now() });

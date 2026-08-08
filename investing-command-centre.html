@@ -1765,7 +1765,8 @@ async function runSystemCheck(){
       let msg = cov.length+" of "+all.length+" symbols priced live ("+esc((prices.sources||[]).join(", ")||"no source")+").";
       if(heldUncovered.length) msg += " NO live price for holdings you own: "+heldUncovered.map(esc).join(", ")+" — those values come from eToro, not a price feed.";
       if(dis.length) msg += " Sources disagree on "+dis.map(d=>esc(d.symbol)).join(", ")+" — no price shown rather than guessing.";
-      if(st.length) msg += " Stale: "+st.map(esc).join(", ")+".";
+      if(st.length) msg += " Stale during an open session: "+st.map(esc).join(", ")+".";
+      else if(prices.marketOpen===false) msg += " US session closed — showing last-close prices, which is expected, not stale.";
       if(!heldUncovered.length && !dis.length && cov.length) msg += " Every holding you own has a live price.";
       push("Price feed", lvl, msg);
     }
