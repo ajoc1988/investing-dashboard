@@ -1750,10 +1750,10 @@ async function runSystemCheck(){
   if(health){const e=health.keys&&health.keys.etoro; if(portfolio&&portfolio.source==="etoro")push("eToro read-only","GREEN","Connected, read-only — holdings syncing.");else if(portfolio&&portfolio.connected===false&&portfolio.error)push("eToro read-only","RED","Configured but failing: "+portfolio.error);else push("eToro read-only", e?"AMBER":"AMBER", e?"Key set but no holdings returned yet.":"Not configured — using manual portfolio.");}
   else push("eToro read-only","AMBER","Manual portfolio (no backend).");
   // Price feed
-  if(health){const ok=prices&&prices.prices&&prices.prices.VOO&&prices.prices.VOO.price; push("Price feed", ok?"GREEN":health.keys.finnhub?"RED":"AMBER", ok?("VOO "+usd(prices.prices.VOO.price)+" returned."):health.keys.finnhub?"Finnhub key set but no quote returned.":"No Finnhub key — prices are manual.");}
+  if(health){const ok=prices&&prices.prices&&prices.prices.VOO&&prices.prices.VOO.price; const kf=(health.keys||{}).finnhub; push("Price feed", ok?"GREEN":kf?"RED":"AMBER", ok?("VOO "+usd(prices.prices.VOO.price)+" returned."):kf?"Finnhub key set but no quote returned.":"No Finnhub key — prices are manual.");}
   else push("Price feed", S.finnhubKey?"AMBER":"AMBER", S.finnhubKey?"Direct Finnhub key set (no backend).":"Manual / last-known prices.");
   // Macro feed
-  if(health){const ok=market&&(market.vix!=null||market.y10!=null); push("Macro feed", ok?"GREEN":health.keys.fred?"RED":"AMBER", ok?"FRED returning VIX / yields / CPI.":health.keys.fred?"FRED key set but no data returned.":"No FRED key — macro is manual.");}
+  if(health){const ok=market&&(market.vix!=null||market.y10!=null); const kr=(health.keys||{}).fred; push("Macro feed", ok?"GREEN":kr?"RED":"AMBER", ok?"FRED returning VIX / yields / CPI.":kr?"FRED key set but no data returned.":"No FRED key — macro is manual.");}
   else push("Macro feed","AMBER","Manual macro entry (no backend).");
   // AI keys
   if(health){const k=health.keys||{};const seats=(typeof health.committeeSeats==="number")?health.committeeSeats:["openai","anthropic","gemini","perplexity","openrouter"].filter(x=>k[x]).length; push("AI committee keys", seats>0?"GREEN":"AMBER", seats>0?(seats+" committee seat(s) active — debate + synthesiser running."):"No AI keys — committee runs in manual copy/paste mode.");}
@@ -1762,7 +1762,19 @@ async function runSystemCheck(){
   if(base){push("History store", history?"GREEN":"AMBER", history?"Backend history store reachable. Local memory also active ("+S.history.length+" snapshots).":"Backend store unreachable — local memory still active ("+S.history.length+" snapshots).");}
   else push("History store","GREEN","Local memory active ("+S.history.length+" snapshots, "+S.journal.length+" journal entries).");
   // Prompt files
-  if(base){const ok=prompts&&prompts.files&&prompts.files.length>=3&&prompts.prompts; push("Prompt files", ok?"GREEN":"AMBER", ok?(prompts.files.length+" prompt files loaded."):"Prompt files not found — server defaults in use.");}
+  /* Was: counted filenames and went GREEN whenever the backend replied — it never read the
+     content, so it asserted an integrity it had not checked. The backend now reports whether
+     each prompt is a built-in default or a file override, so this can state a real fact. */
+  if(base){
+    if(!prompts||!prompts.prompts){ push("Prompt integrity","AMBER","Couldn't read the committee's instructions from the backend."); }
+    else if(!prompts.sources){ push("Prompt integrity","AMBER","Backend build is older than this page and can't report whether the prompts are defaults or overrides."); }
+    else {
+      const ov=Array.isArray(prompts.overrides)?prompts.overrides:Object.keys(prompts.sources).filter(k=>prompts.sources[k]==="file");
+      push("Prompt integrity", ov.length?"AMBER":"GREEN",
+        ov.length ? ("Override file(s) live on the server: "+ov.map(esc).join(", ")+". Legitimate if you committed them to the backend repo — investigate if you didn't.")
+                  : "All "+(prompts.files?prompts.files.length:3)+" prompts on built-in defaults. No server-side override.");
+    }
+  }
   else push("Prompt files","AMBER","Served by backend when deployed.");
   // Alerts engine
   const en=Object.values(S.alertSettings).filter(Boolean).length; push("Alerts engine", en>0?"GREEN":"AMBER", en>0?(en+" of 6 categories active."):"All alert categories are switched off.");
