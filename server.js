@@ -27,7 +27,7 @@ const { resolve: resolveCommitteeAction } = require('./committee-resolver');
  * by hand whenever the backend is deployed. Surfaced via /api/health so the frontend
  * can compare it against its own constant and flag frontend/backend deployment drift.
  * The frontend expects API_VERSION to match its EXPECTED_API constant.               */
-const API_VERSION = '2.0.0';
+const API_VERSION = '2.1.0';
 
 const app = express();
 app.use(express.json({ limit: '128kb' }));
