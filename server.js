@@ -27,7 +27,7 @@ const { resolve: resolveCommitteeAction } = require('./committee-resolver');
  * by hand whenever the backend is deployed. Surfaced via /api/health so the frontend
  * can compare it against its own constant and flag frontend/backend deployment drift.
  * The frontend expects API_VERSION to match its EXPECTED_API constant.               */
-const API_VERSION = '2.3.0';
+const API_VERSION = '2.5.0';
 
 const app = express();
 app.use(express.json({ limit: '128kb' }));
@@ -1505,12 +1505,92 @@ function buildSeatPrompt(seatKey, def, run, priorResponses) {
     }
   }
 
-  // Locked-stage seats see the frozen pack and nothing else.
-  if (def.stage === 'locked' && run && run.evidence_pack) {
-    parts.push('', 'LOCKED EVIDENCE PACK (this is your ONLY factual input):',
-                   JSON.stringify(run.evidence_pack, null, 1));
+  /* Locked-stage seats see the frozen pack and nothing else.
+   *
+   * THE BUG THIS REPLACES. The old line was `if (stage === 'locked' && run.evidence_pack)`.
+   * Nothing in the codebase ever WROTE evidence_pack, so the condition was always false and
+   * the branch was silently skipped — while the brief above still said "Using ONLY the locked
+   * evidence pack". Claude was handed a prompt that claimed to carry evidence and carried
+   * none, and answered, correctly, "I don't have the locked evidence pack content."
+   *
+   * A missing pack is now a REFUSAL, not an omission. The caller gets told what is wrong
+   * instead of getting a confident-looking prompt with the evidence quietly removed. */
+  if (def.stage === 'locked') {
+    if (!run || !run.evidence_pack || !run.evidence_pack_hash) {
+      return { prompt: null, evidenceUsed: [], missing,
+               needsLock: true,
+               error: 'evidence pack is not locked — this seat must not be asked to reason from a pack that does not exist' };
+    }
+    // The hash goes IN the prompt text. Two seats holding the same hash is then checkable
+    // from the prompts themselves, not merely asserted by the server that built them.
+    parts.push('',
+      'LOCKED EVIDENCE PACK — this is your ONLY factual input. Do not add outside knowledge.',
+      'PACK HASH: ' + run.evidence_pack_hash,
+      canonicalJson(run.evidence_pack));
   }
-  return { prompt: parts.join('\n'), evidenceUsed: used, missing };
+  return { prompt: parts.join('\n'), evidenceUsed: used, missing,
+           packHash: (run && run.evidence_pack_hash) || null };
+}
+
+/* ── The frozen evidence pack ────────────────────────────────────────────────────
+ * Deterministic serialisation: keys sorted at every level, so the same evidence always
+ * produces the same bytes and therefore the same hash. Note what is NOT in here — a
+ * timestamp. buildPacket() opens with a fresh ISO stamp, which is exactly why anything
+ * hashing it gets a 0% match rate while appearing to work. locked_at lives in its own
+ * column, outside the hashed content. */
+function canonicalJson(v) {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v);
+  if (Array.isArray(v)) return '[' + v.map(canonicalJson).join(',') + ']';
+  return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + canonicalJson(v[k])).join(',') + '}';
+}
+function packHashOf(pack) {
+  return crypto.createHash('sha256').update(canonicalJson(pack)).digest('hex').slice(0, 32);
+}
+
+/* Every night seat must be present and OK before the pack can be built. A pack assembled
+ * from two of three seats would still hash, still look locked, and would silently be a
+ * different experiment from the one the design describes. */
+const WC_PACK_SEATS = ['grok', 'gemini', 'perplexity'];
+
+/* WHICH response gets frozen, when a seat has several.
+ *
+ * Reruns and failed attempts both leave rows behind, so "the grok response" is not a single
+ * thing. The rule is: the LATEST response with status 'ok'. A newer FAILED attempt must not
+ * displace an older successful one, and an older success must not win over a newer one.
+ *
+ * The previous version filtered then called .pop(), which takes the last element of whatever
+ * order the database happened to return. It worked only because the caller's query carried
+ * `order=created_at.asc` — and `created_at` was not even in the SELECT, so this function had
+ * nothing to sort by and no way to notice. Drop that clause, swap the store, or reorder the
+ * query and it would silently freeze an arbitrary answer while looking entirely normal.
+ *
+ * Ordering is now decided HERE, from values this function can see, and does not depend on
+ * the caller's query at all. `id` is the tie-break so two rows sharing a timestamp still
+ * resolve the same way every time rather than by arrival order. */
+function pickLatestOk(responses, seat) {
+  const rows = (responses || []).filter(x =>
+    x.seat === seat && x.stage === 'night' && x.status === 'ok' && x.raw_response);
+  if (!rows.length) return null;
+  return rows.slice().sort((a, b) => {
+    const ta = Date.parse(a.created_at || '') || 0, tb = Date.parse(b.created_at || '') || 0;
+    if (ta !== tb) return tb - ta;                       // newest first
+    return String(b.id || '').localeCompare(String(a.id || ''));   // deterministic tie-break
+  })[0];
+}
+
+function buildEvidencePack(run, responses) {
+  const missing = [], seats = {};
+  for (const s of WC_PACK_SEATS) {
+    const r = pickLatestOk(responses, s);
+    if (!r) { missing.push(s); continue; }
+    /* Provenance is recorded as found and never invented. An unknown provider or model
+     * stays null rather than being filled in with the seat's configured default — the pack
+     * must say what actually answered, not what was supposed to. */
+    seats[s] = { seat: s, source: r.source, provider: r.provider || null,
+                 model: r.model || null, response: String(r.raw_response) };
+  }
+  if (missing.length) return { missing, pack: null };
+  return { missing: [], pack: { candidates: (run && run.candidates) || [], seats } };
 }
 
 // Create a run. The record exists from the FIRST action, before any seat is called —
@@ -1568,8 +1648,17 @@ app.get('/api/wildcard/prompt/:seat', async (req, res) => {
   // No run supplied: the generic role prompt only, and it says so rather than implying
   // it carries evidence it does not have.
   if (!runId) {
-    const { prompt } = buildSeatPrompt(seat, def, null, []);
-    return res.json({ seat, label: def.label, stage: def.stage, prompt,
+    const built = buildSeatPrompt(seat, def, null, []);
+    /* A locked-stage seat with no run has no pack by definition, so it is refused here for
+     * the same reason it is refused with a run. The previous version returned HTTP 200 with
+     * a null prompt and a note saying "Generic role prompt" — which was no longer true and
+     * would have read as a working endpoint returning nothing. */
+    if (built.needsLock) {
+      return res.status(409).json({ seat, stage: def.stage, needsLock: true,
+        error: 'evidence pack not locked',
+        note: 'This seat reasons from the frozen pack alone. Supply a run whose evidence is locked.' });
+    }
+    return res.json({ seat, label: def.label, stage: def.stage, prompt: built.prompt,
       evidenceUsed: [], incomplete: (WC_REQUIRES[seat] || []).length > 0,
       missing: WC_REQUIRES[seat] || [],
       note: 'Generic role prompt — no run supplied, so no prior evidence is attached.', ts: Date.now() });
@@ -1578,7 +1667,7 @@ app.get('/api/wildcard/prompt/:seat', async (req, res) => {
 
   let run = null, prior = [];
   try {
-    [run] = await sbWc('GET', `wildcard_runs?id=eq.${runId}&select=candidates,evidence_pack`);
+    [run] = await sbWc('GET', `wildcard_runs?id=eq.${runId}&select=candidates,evidence_pack,evidence_pack_hash`);
     if (!run) return res.status(404).json({ error: 'run not found' });
     prior = await sbWc('GET', `wildcard_seat_responses?run_id=eq.${runId}&select=seat,stage,source,status,raw_response`) || [];
   } catch (e) {
@@ -1589,7 +1678,19 @@ app.get('/api/wildcard/prompt/:seat', async (req, res) => {
       note: 'Refusing to build a prompt without being able to read the prior evidence.' });
   }
 
-  const { prompt, evidenceUsed, missing } = buildSeatPrompt(seat, def, run, prior);
+  const built = buildSeatPrompt(seat, def, run, prior);
+  const { prompt, evidenceUsed, missing } = built;
+
+  /* A locked-stage seat with no frozen pack is refused outright, and allowIncomplete does
+   * NOT override it. "Proceed without the evidence" is a coherent choice for an audit; it is
+   * not a coherent choice for a seat whose entire instruction is "use ONLY the locked pack". */
+  if (built.needsLock) {
+    return res.status(409).json({
+      error: 'evidence pack not locked', seat, needsLock: true,
+      note: 'Lock the audited evidence first (POST /api/wildcard/lock). This seat reasons from '
+          + 'the frozen pack alone, so a prompt without it would be a different experiment.'
+    });
+  }
   if (missing.length && !allowIncomplete) {
     return res.status(409).json({
       error: 'required prior evidence is missing', seat, missing, evidenceUsed,
@@ -1600,11 +1701,73 @@ app.get('/api/wildcard/prompt/:seat', async (req, res) => {
   res.json({
     seat, label: def.label, stage: def.stage, prompt,
     evidenceUsed, missing, incomplete: missing.length > 0,
+    packHash: built.packHash || null,
     note: missing.length
       ? 'PROCEEDING INCOMPLETE — missing: ' + missing.join(', ') + '. Record this against the run.'
       : 'Paste the full reply back via POST /api/wildcard/seat with source:"manual".',
     ts: Date.now()
   });
+});
+
+/* ═══ THE LOCK ═══════════════════════════════════════════════════════════════════
+ * Freezes the audited night evidence into an immutable pack and hashes it. This is the
+ * step that was missing entirely: the column existed, the prompt builder read it, nothing
+ * ever wrote it.
+ *
+ * FREEZING MEANS FREEZING. If a run is already locked this returns the existing pack
+ * untouched — it never re-freezes, even if a seat has been re-answered since. Re-locking
+ * would change the hash under Claude and DeepSeek and quietly destroy the one property the
+ * whole design exists to provide: that both of them reasoned from identical evidence.
+ * Re-locking deliberately requires ?relock=1 and is recorded by the hash changing. */
+app.post('/api/wildcard/lock', async (req, res) => {
+  const runId = String((req.body && req.body.runId) || '');
+  if (!/^[0-9a-f-]{36}$/i.test(runId)) return res.status(400).json({ error: 'bad run id' });
+  const relock = String((req.body && req.body.relock) || '') === '1';
+
+  let run, prior;
+  try {
+    [run] = await sbWc('GET', `wildcard_runs?id=eq.${runId}&select=id,candidates,evidence_pack,evidence_pack_hash,evidence_locked_at`);
+    if (!run) return res.status(404).json({ error: 'run not found' });
+    prior = await sbWc('GET', `wildcard_seat_responses?run_id=eq.${runId}&select=id,created_at,seat,stage,source,status,provider,model,raw_response&order=created_at.asc`) || [];
+  } catch (e) {
+    logUpstream('wildcard:lock:read', e);
+    return res.status(502).json({ error: shortReason(String((e && e.message) || e)) });
+  }
+
+  if (run.evidence_pack && run.evidence_pack_hash && !relock) {
+    return res.json({ locked: true, alreadyLocked: true,
+      packHash: run.evidence_pack_hash, lockedAt: run.evidence_locked_at,
+      seats: Object.keys((run.evidence_pack && run.evidence_pack.seats) || {}),
+      note: 'Already locked. The pack was NOT rebuilt — re-freezing would change the hash '
+          + 'and break the identical-evidence guarantee.', ts: Date.now() });
+  }
+
+  const { missing, pack } = buildEvidencePack(run, prior);
+  if (missing.length) {
+    return res.status(409).json({ error: 'cannot lock — night evidence incomplete', missing,
+      note: 'Every night seat (' + WC_PACK_SEATS.join(', ') + ') must have an OK response first. '
+          + 'A pack built from some of them would still hash and still look locked.' });
+  }
+
+  const hash = packHashOf(pack);
+  const lockedAt = new Date().toISOString();
+  try {
+    const rows = await sbWc('PATCH', `wildcard_runs?id=eq.${runId}`,
+      { evidence_pack: pack, evidence_pack_hash: hash, evidence_locked_at: lockedAt, stage: 'locked' });
+    const saved = Array.isArray(rows) ? rows[0] : rows;
+    // Trust the row that came back, not the value we sent. A write that silently did not
+    // land would otherwise be reported as a successful lock.
+    if (!saved || saved.evidence_pack_hash !== hash) {
+      return res.status(502).json({ error: 'lock did not persist',
+        note: 'The database did not return the hash that was written. Nothing is locked.' });
+    }
+    res.json({ locked: true, alreadyLocked: false, packHash: hash, lockedAt,
+      seats: Object.keys(pack.seats), candidates: pack.candidates,
+      chars: Object.values(pack.seats).reduce((n, x) => n + x.response.length, 0), ts: Date.now() });
+  } catch (e) {
+    logUpstream('wildcard:lock:write', e);
+    res.status(502).json({ error: shortReason(String((e && e.message) || e)) });
+  }
 });
 
 // Store a seat response — API or MANUAL, identical treatment downstream.

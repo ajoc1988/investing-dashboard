@@ -1002,7 +1002,7 @@ function defaults(){return{
  * EXPECTED_API = the backend build this frontend was written against.
  * The chip in the header shows "FE x · API y" and turns amber on mismatch, so a stale
  * GitHub Pages page or a stale Render backend is visible at a glance instead of silent. */
-const FE_VERSION="2.4.0", EXPECTED_API="2.3.0";
+const FE_VERSION="2.5.0", EXPECTED_API="2.5.0";
 let API_VERSION_SEEN=null;
 
 const POLICY=Object.freeze({monthlyPlanBhd:500, destination:"ISAC.L", status:"ON POLICY",
@@ -1246,8 +1246,16 @@ function wcRender(){
 
   for(let i=0;i<cur;i++) h+='<div class="wc-row done"><span class="nm">'+esc(WC_FLOW[i].n)+'</span><span>DONE ✓</span></div>';
 
-  h += WC_FLOW[cur].key==="decision" ? wcDecisionHtml()
-                                     : WC_FLOW[cur].seats.map(wcCardHtml).join("");
+  /* Step 3 is gated on the pack. Claude and DeepSeek exist to reason from IDENTICAL frozen
+     evidence, so until it is frozen there is nothing honest for them to read. */
+  if(WC_FLOW[cur].key==="test" && !wcLocked()){
+    h += wcLockHtml();
+  } else {
+    if(WC_FLOW[cur].key==="test") h += wcLockedStripHtml();
+    h += WC_FLOW[cur].key==="decision" ? wcDecisionHtml()
+                                       : WC_FLOW[cur].seats.map(wcCardHtml).join("");
+  }
+  if(WC_FLOW[cur].key==="decision" && wcLocked()) h = wcLockedStripHtml() + h;
 
   for(let i=cur+1;i<WC_FLOW.length;i++){
     const s=WC_FLOW[i];
@@ -1261,6 +1269,48 @@ function wcRender(){
   h+='<button class="wc-btn sec" id="wcNewRun" style="margin-top:11px">START A DIFFERENT RUN</button>';
   flow.innerHTML=h;
   const nb=$("wcNewRun"); if(nb) nb.onclick=function(){ WC_RUN=null; WC_RESP=[]; WC_UI={}; wcSetStatus("Three tickers, then Debate.",""); wcRender(); wcOfferResume(); };
+}
+
+function wcLocked(){ return !!(WC_RUN && WC_RUN.evidence_pack_hash); }
+function wcShortHash(){ const h=(WC_RUN&&WC_RUN.evidence_pack_hash)||""; return h?h.slice(0,12):""; }
+
+/* The lock gate. One button, and it will not pretend: if a night seat is missing the server
+   refuses and says which one. */
+function wcLockHtml(){
+  const busy = WC_UI.__lock==="running";
+  return '<div class="wc-card"><div class="hd"><div class="nm">LOCK THE EVIDENCE'
+    + '<div class="sb">FREEZE WHAT THE NIGHT SEATS FOUND</div></div>'
+    + '<span class="wc-badge '+(busy?"run":"wait")+'">'+(busy?"LOCKING":"NOT LOCKED")+'</span></div>'
+    + '<div class="wc-note">Grok, Gemini and Perplexity are done. Freezing their answers now means '
+    + 'Claude and DeepSeek both read the <b>same</b> evidence — that is the whole point of the test. '
+    + 'Once locked it cannot drift.</div>'
+    + '<div class="wc-btnrow"><button class="wc-btn" data-wc-lock="1"'+(busy?" disabled":"")+'>LOCK EVIDENCE</button></div></div>';
+}
+/* PACK LOCKED strip + a read-only view of the pack.
+ *
+ * This renders WC_RUN.evidence_pack — the STORED object, exactly as the server saved it and
+ * exactly what buildSeatPrompt() serialises into Claude's and DeepSeek's prompts. It is not
+ * reassembled here from the seat responses. A display rebuilt from the same inputs could
+ * agree with itself while disagreeing with what was actually frozen, which would make this
+ * control worse than useless — it would look like verification. */
+function wcLockedStripHtml(){
+  const pack = WC_RUN && WC_RUN.evidence_pack;
+  let h = '<div class="wc-row done"><span class="nm">PACK LOCKED ✓</span><span>'+esc(wcShortHash())+'</span></div>';
+  if(!pack) return h;
+  const seats = pack.seats || {};
+  h += '<details class="wc-det"><summary>VIEW LOCKED EVIDENCE</summary><div class="in">'
+    +  '<div style="font-family:var(--mono);font-size:10px;letter-spacing:.08em;color:#98A2B3">PACK HASH</div>'
+    +  '<div style="font-family:var(--mono);font-size:12px;word-break:break-all;margin:2px 0 4px">'+esc((WC_RUN.evidence_pack_hash)||"")+'</div>'
+    +  '<div class="wc-note" style="margin-top:0">This is the exact frozen pack Claude and DeepSeek receive. Read-only.</div>'
+    +  Object.keys(seats).sort().map(function(k){
+         const v=seats[k]||{};
+         const prov=[v.source||"?", v.provider||null, v.model||null].filter(Boolean).join(" · ");
+         return '<div style="margin-top:12px"><b>'+esc((k||"").toUpperCase())+'</b>'
+           +  ' <span style="font-family:var(--mono);font-size:10px;color:#98A2B3">'+esc(prov)+'</span>'
+           +  '<pre>'+esc(String(v.response||""))+'</pre></div>';
+       }).join("")
+    +  '</div></details>';
+  return h;
 }
 
 function wcCardHtml(seat){
@@ -1392,6 +1442,28 @@ async function wcAuto(seat){
   }
 }
 
+/* Freeze the audited evidence. Refusals are reported exactly as the server states them —
+ * a lock that did not happen must never look like one that did. */
+async function wcLock(){
+  const base=wcBase(); if(!base) return;
+  if(!WC_RUN||!WC_RUN.id){ wcSetStatus("Create a run first.","bad"); return; }
+  WC_UI.__lock="running"; wcRender();
+  try{
+    const j=await apiJson(base+"/api/wildcard/lock",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({runId:WC_RUN.id})});
+    delete WC_UI.__lock;
+    await wcRefresh();
+    wcSetStatus(j.alreadyLocked
+      ? "Already locked — the pack was not rebuilt. Hash "+String(j.packHash||"").slice(0,12)+"."
+      : "Evidence locked. Claude and DeepSeek will both read this exact pack — hash "+String(j.packHash||"").slice(0,12)+".","good");
+  }catch(e){
+    delete WC_UI.__lock; wcRender();
+    const b=e&&e.body;
+    if(b&&b.missing) wcSetStatus("Cannot lock yet — no answer stored for: "+b.missing.join(", ")+".","bad");
+    else wcSetStatus("Couldn't lock the evidence: "+wcErr(e),"bad");
+  }
+}
+
 async function wcCopyPrompt(seat){
   const base=wcBase(); if(!base) return;
   const q = WC_RUN&&WC_RUN.id ? "?run="+encodeURIComponent(WC_RUN.id) : "";
@@ -1404,7 +1476,8 @@ async function wcCopyPrompt(seat){
   }catch(e){
     /* 409 = required prior evidence missing. Say so precisely rather than failing vaguely. */
     const body=e&&e.body;
-    if(body&&body.missing) wcSetStatus("Cannot build this prompt yet — it must audit: "+body.missing.join(", ")+".","bad");
+    if(body&&body.needsLock) wcSetStatus("The evidence pack is not locked yet. This seat reads only the frozen pack, so there is nothing honest to send it.","bad");
+    else if(body&&body.missing) wcSetStatus("Cannot build this prompt yet — it must audit: "+body.missing.join(", ")+".","bad");
     else wcSetStatus("Couldn't build the prompt: "+wcErr(e),"bad");
   }
 }
@@ -1435,8 +1508,10 @@ async function wcSaveResponse(seat){
   if(host) host.addEventListener("click",function(ev){
     const t=ev.target.closest("button"); if(!t)return;
     const a=t.getAttribute("data-wc-auto"), c=t.getAttribute("data-wc-copy"),
-          p=t.getAttribute("data-wc-paste"), sv=t.getAttribute("data-wc-save");
-    if(a) wcAuto(a);
+          p=t.getAttribute("data-wc-paste"), sv=t.getAttribute("data-wc-save"),
+          lk=t.getAttribute("data-wc-lock");
+    if(lk) wcLock();
+    else if(a) wcAuto(a);
     else if(c) wcCopyPrompt(c);
     else if(p){ const card=$("wcSeat_"+p); if(card)card.classList.add("open");
       const row=document.querySelector('[data-wc-save-row="'+p+'"]'); if(row)row.style.display="flex";
