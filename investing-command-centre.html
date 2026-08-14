@@ -444,6 +444,118 @@
   .summary .pv{text-shadow:0 0 22px rgba(0,229,255,.22)}
   .mb .p{text-shadow:0 0 14px rgba(0,229,255,.1)}
   :focus-visible{outline:2px solid var(--data); outline-offset:2px}
+
+
+  /* ── MOBILE IS UNTOUCHED ────────────────────────────────────────────────────
+     .cmdbar is the ONE structural element added for the desktop layout. Below the
+     breakpoint display:contents removes its box from layout completely, so its four
+     children behave exactly as the four top-level siblings they were before. Verified
+     by pixel-diffing the whole phone page against the previous build: zero differences. */
+  @media(max-width:1099px){ .cmdbar{display:contents} }
+
+/* ═══════════ DESKTOP COMPOSITION — OPTION C ════════════════════════════════════
+ * Everything is inside ONE media query. Below 1100px not a single rule applies, so the
+ * phone layout is byte-for-byte what it is today. No wrapper columns, no DOM reorder,
+ * no fixed pixel heights anywhere.
+ *
+ * HOW THE DEAD SPACE IS SOLVED. The tall action panel spans rows 2-5. The left column
+ * fills those same four rows with Summary, Command bar, Meters and Chips. Whatever height
+ * is left over is split evenly across four rows instead of dumped into one — a few pixels
+ * per row rather than one 470px hole. Nothing is pinned to a measured height, so if the
+ * content grows or shrinks the gaps simply redistribute. */
+@media(min-width:1100px){
+  body{
+    max-width:1460px; padding:22px 26px 60px;
+    display:grid; grid-template-columns:minmax(0,62fr) minmax(0,38fr);
+    column-gap:18px; row-gap:14px; align-content:start; align-items:start;
+  }
+
+  header.top{grid-column:1/-1; grid-row:1; padding:0 0 4px; align-items:center}
+  header.top h1{font-size:26px}
+
+  /* ── the command block: what I own, what to do, and the controls, in one screen ── */
+  .summary       {grid-column:1; grid-row:2}
+  .cmdbar        {grid-column:1; grid-row:3}
+  .meters        {grid-column:1; grid-row:4; margin-top:0}
+  .chips         {grid-column:1; grid-row:5; margin-top:0}
+  .guide         {grid-column:2; grid-row:2 / span 4; margin-top:0}
+
+  /* ONE dominant instruction. */
+  .guide .hd h2{font-size:16px}
+  .gcard .gmain{font-size:21px}
+
+  /* ── supporting evidence, demoted. Same data, no second headline. ── */
+  #convictionGate{grid-column:1; grid-row:6}
+  .tl            {grid-column:2; grid-row:6; margin-top:0; align-items:center}
+  /* The traffic light stops being a second giant recommendation and becomes a status strip.
+     Nothing about how it is calculated changes — only how loudly it speaks. */
+  .tl .lamp{flex-direction:row; width:auto; padding:0 13px; gap:6px; background:transparent}
+  .tl .lamp .d{width:9px; height:9px}
+  .tl .body{padding:10px 13px 10px 0; flex-direction:row; align-items:baseline; gap:11px; flex-wrap:wrap}
+  .tl .body::before{content:"TRAFFIC LIGHT"; font-family:var(--mono); font-size:9.5px;
+    letter-spacing:.12em; color:var(--muted-2); align-self:center}
+  .tl .body .act{font-family:var(--mono); font-size:11.5px; font-weight:700; letter-spacing:.09em}
+  .tl .body .why{margin-top:0; font-size:11.5px; flex:1 1 100%; color:var(--muted)}
+  /* the gate paints itself with inline styles, so compacting it needs explicit override */
+  #convictionGate > div{padding:9px 13px !important; margin-bottom:0 !important; border-radius:12px !important}
+  #convictionGate ul{margin-top:5px !important}
+  #convictionGate li{font-size:11.5px !important}
+
+  /* ── one control bar instead of four stacked blocks ── */
+  .cmdbar{display:flex; flex-wrap:wrap; align-items:center; gap:9px;
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--r); padding:10px 12px}
+  .cmdbar > *{margin-top:0 !important}
+  .cmdbar .actions{display:flex; gap:9px; margin:0}
+  .cmdbar .btn{padding:11px 15px; font-size:13px; white-space:nowrap}
+  .cmdbar .cashbucket-row{margin:0; flex:1 1 300px}
+  .cmdbar .cashbucket-row .btn{flex:1 1 auto}
+  .cmdbar .syscheck-row,.cmdbar .util-row{margin:0; display:flex; gap:9px; flex:0 0 auto}
+  .cmdbar .syscheck-row .btn{flex:0 0 auto}
+
+  /* ── HOLDINGS | ALLOCATION, from the existing single card ──
+     The card spans the full width and becomes its own two-column grid, so the holdings
+     table gets the width it deserves and the donut sits beside it instead of under it.
+     No duplicated markup, no second data path, and below 1100px the card is untouched. */
+  #pfCard{grid-column:1/-1; grid-row:7; display:grid; align-items:start;
+    grid-template-columns:minmax(0,1fr) 330px; column-gap:22px}
+  #pfCard > h2, #pfCard > .card-note, #pfCard > table, #pfCard > .means{grid-column:1}
+  /* the donut and its legend stay SIDE BY SIDE inside the right column — stacking them
+     made the block ~450px tall, which forced the holdings rows to stretch to match it */
+  #pfCard > .pie-row{grid-column:2; grid-row:1 / span 3; margin-top:0; align-self:start;
+    flex-wrap:wrap; align-items:center; gap:12px; border-left:1px solid var(--line-soft); padding-left:20px}
+  #pfCard > .pie-row::before{content:"ALLOCATION"; flex:1 1 100%; font-family:var(--mono);
+    font-size:9.5px; letter-spacing:.16em; color:var(--muted-2)}
+  #pfCard > .pie-row .pie{width:132px}
+  #pfCard > .pie-row .pie-legend{min-width:120px; gap:5px}
+  #pfCard > .pie-row .pie-legend .lg{font-size:11.5px}
+  /* The composition bars run FULL WIDTH beneath both columns, in three columns of their
+     own. Left (table) and right (donut) then come out close in height, and the leftover
+     space that has to go somewhere goes into a block that genuinely uses it. */
+  #pfCard > #allocBlock{grid-column:1/-1; margin-top:2px !important;
+    border-top:1px solid var(--line-soft); padding-top:12px}
+  #pfCard > #allocBlock .eyebrow{margin:0 0 9px !important}
+  #pfCard > #allocBlock .alloc{display:grid; grid-template-columns:repeat(3,1fr); gap:4px 26px}
+  #pfCard > .means{grid-column:1/-1}
+  #pfCard table{font-size:13.5px}
+  #pfCard table th,#pfCard table td{padding:10px 8px}
+
+  /* ── related context, compared rather than scrolled between ── */
+  #dangerCard{grid-column:1; grid-row:8}
+  #oppCard   {grid-column:2; grid-row:8}
+  #oppCard .opp-grid{grid-template-columns:1fr 1fr}
+  #trendCard {grid-column:1; grid-row:9; margin-top:0}
+  #alertsCard{grid-column:2; grid-row:9; margin-top:0}
+  #dpCard    {grid-column:1/-1; grid-row:10}
+
+  /* everything after this auto-places full width from row 11 down, in DOM order */
+  #bhvCard,#deepCard,#journalCard,#diagCard,.sec-markets,footer{grid-column:1/-1}
+
+  /* horizontal whitespace instead of vertical */
+  .card{margin-top:0; padding:15px 16px}
+  .summary{padding:18px}
+  .summary .pv{font-size:38px}
+  .summary .grid{gap:26px}
+}
 </style>
 </head>
 <body>
@@ -500,7 +612,11 @@
   <div class="blunt" id="bhvBlunt"></div>
 </section>
 
-<!-- ACTIONS -->
+<!-- ACTIONS + CONTROLS -->
+<!-- .cmdbar exists ONLY so the desktop breakpoint can gather these four blocks into one
+     control bar. Below 1100px it is display:contents, which removes it from layout entirely,
+     so the phone sees exactly the four separate blocks it always saw. -->
+<div class="cmdbar">
 <div class="actions">
   <button class="btn primary" id="refreshBtn"><span class="ico">↻</span> REFRESH LIVE DATA</button>
   <button class="btn run" id="deepBtn"><span class="ico">▶</span> RUN DEEP TRIGGERS</button>
@@ -520,6 +636,7 @@
   <button class="btn sm" id="editBtn">✎ Edit portfolio</button>
   <button class="btn sm" id="setBtn">⚙ Settings &amp; market data</button>
 </div>
+</div><!-- /.cmdbar -->
 
 <!-- METERS -->
 <div class="meters">
@@ -575,7 +692,7 @@
 </section>
 
 <!-- MARKET DANGER SCORE -->
-<section class="card">
+<section class="card" id="dangerCard">
   <h2><span class="dot" style="background:var(--risk)"></span> MARKET DANGER SCORE</h2>
   <div class="card-note">0–100. What's actually risky right now, and why.</div>
   <div id="dangerBreakdown"></div>
@@ -583,7 +700,7 @@
 </section>
 
 <!-- OPPORTUNITY SCORES -->
-<section class="card">
+<section class="card" id="oppCard">
   <h2><span class="dot" style="background:var(--act)"></span> OPPORTUNITY SCORES</h2>
   <div class="card-note">0–100 per asset — how attractive it is to add today, given price, weight and fear.</div>
   <div class="opp-grid" id="oppGrid"></div>
@@ -591,17 +708,17 @@
 </section>
 
 <!-- PORTFOLIO -->
-<section class="card">
+<section class="card" id="pfCard">
   <h2><span class="dot" style="background:var(--data)"></span> PORTFOLIO (eToro)</h2>
   <div class="card-note" id="pfNote">Manual holdings. Connect a price source in Settings for live values.</div>
   <table><thead><tr><th>Holding</th><th>Value</th><th>P/L</th><th>Now %</th></tr></thead><tbody id="pfBody"></tbody></table>
   <div class="pie-row"><div class="pie"><div id="portfolioPie"></div></div><div class="pie-legend" id="pieLegend"></div></div>
-  <div style="margin-top:6px"><div class="eyebrow" style="margin:14px 0 8px">Composition — descriptive</div><div class="alloc" id="allocWrap"></div></div>
+  <div id="allocBlock" style="margin-top:6px"><div class="eyebrow" style="margin:14px 0 8px">Composition — descriptive</div><div class="alloc" id="allocWrap"></div></div>
   <div class="means"><b>What this means for Andrew</b><span id="pfMeans">—</span></div>
 </section>
 
 <!-- DEPLOYMENT ENGINE (was: DRY POWDER) -->
-<section class="card">
+<section class="card" id="dpCard">
   <h2><span class="dot" id="dpDot"></span> DEPLOYMENT ENGINE</h2>
   <div class="pie-row" style="align-items:flex-start">
     <div class="dp-meter"><div id="cashMeter"></div><div class="dp-label" id="cashMeterLabel">—</div></div>
@@ -885,7 +1002,7 @@ function defaults(){return{
  * EXPECTED_API = the backend build this frontend was written against.
  * The chip in the header shows "FE x · API y" and turns amber on mismatch, so a stale
  * GitHub Pages page or a stale Render backend is visible at a glance instead of silent. */
-const FE_VERSION="2.3.0", EXPECTED_API="2.3.0";
+const FE_VERSION="2.4.0", EXPECTED_API="2.3.0";
 let API_VERSION_SEEN=null;
 
 const POLICY=Object.freeze({monthlyPlanBhd:500, destination:"ISAC.L", status:"ON POLICY",
