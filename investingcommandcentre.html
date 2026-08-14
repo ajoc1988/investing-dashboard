@@ -45,6 +45,21 @@
   .navmenu button:hover,.navmenu button:focus-visible{background:var(--panel-2)}
   .navsep{height:1px; background:var(--line-soft); margin:4px 2px}
   body:not(.show-markets) .sec-markets{display:none !important}
+  /* Wildcard is a SEPARATE experimental sandbox. It is hidden unless deliberately opened,
+     so it can never sit beside the portfolio's resolved action and compete with it. */
+  body:not(.show-wildcard) .sec-wildcard{display:none !important}
+  .wc-warn{border:1px solid var(--watch); background:rgba(255,196,0,.07); border-radius:var(--r-sm); padding:10px 12px; font-size:12px; line-height:1.5; color:var(--watch)}
+  .wc-tickers{display:flex; gap:8px; margin:12px 0}
+  .wc-tickers input{flex:1; min-width:0; background:var(--panel-2); border:1px solid var(--line); border-radius:10px; color:var(--text); font-family:var(--mono); font-size:16px; text-transform:uppercase; padding:12px 10px; text-align:center}
+  .wc-seat{border:1px solid var(--line-soft); border-radius:var(--r-sm); padding:10px 12px; margin-top:8px}
+  .wc-seat .r{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+  .wc-seat .nm{font-weight:600; font-size:13px; flex:1; min-width:140px}
+  .wc-mode{font-family:var(--mono); font-size:10px; padding:3px 8px; border-radius:20px; border:1px solid var(--line)}
+  .wc-mode.manual{color:var(--watch); border-color:rgba(255,196,0,.45)}
+  .wc-mode.auto{color:var(--act); border-color:rgba(47,191,113,.45)}
+  .wc-seat textarea{width:100%; box-sizing:border-box; margin-top:8px; background:var(--panel-2); border:1px solid var(--line); border-radius:8px; color:var(--text); font-family:var(--body); font-size:12px; padding:8px; min-height:64px; display:none}
+  .wc-seat.open textarea{display:block}
+  .wc-note{font-size:11px; color:var(--muted-2); margin-top:5px; line-height:1.45}
 
   /* chat with Claude */
   .chat-overlay{position:fixed; inset:0; z-index:80; background:var(--ink); display:none; flex-direction:column; padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
@@ -364,6 +379,7 @@
   <button id="navDash">Dashboard</button>
   <button id="navMarkets">Markets &amp; data</button>
   <button id="navChat">Chat with AI</button>
+  <button id="navWildcard">⚡ Wildcard (experimental)</button>
   <div class="navsep"></div>
   <button id="navEdit">✎ Edit portfolio</button>
   <button id="navSettings">⚙ Settings &amp; market data</button>
@@ -641,6 +657,29 @@
   <div class="save-bar"><button class="btn primary" id="saveSettings">Save settings</button></div>
 </div></div>
 
+<!-- WILDCARD V2 — experimental trading sandbox. DELIBERATELY isolated from the portfolio:
+     different capital (BHD50), different horizon, different rules. Hidden until opened. -->
+<section class="card sec-wildcard" id="wildcardCard">
+  <h2 style="display:flex;align-items:center;gap:7px"><span class="dot" style="background:var(--watch)"></span> WILDCARD <span style="font-family:var(--mono);font-size:10px;color:var(--muted-2)">EXPERIMENTAL</span></h2>
+  <div class="wc-warn">
+    <b>Separate from your portfolio.</b> BHD50 experimental pot, short-term, one trade per day maximum.
+    Nothing here affects the Monthly Plan or the long-term policy. The app never places orders — it produces
+    instructions you execute yourself. <b>NONE is a normal and desirable result.</b>
+  </div>
+
+  <div class="sub-h" style="margin-top:14px">Tonight's three candidates</div>
+  <div class="wc-tickers">
+    <input id="wc_t1" maxlength="12" placeholder="TICKER 1" autocomplete="off" spellcheck="false">
+    <input id="wc_t2" maxlength="12" placeholder="TICKER 2" autocomplete="off" spellcheck="false">
+    <input id="wc_t3" maxlength="12" placeholder="TICKER 3" autocomplete="off" spellcheck="false">
+  </div>
+  <button class="btn run" id="wcDebate" style="width:100%">▶ DEBATE</button>
+  <div class="wc-note" id="wcStatus">Enter three tickers and press Debate. The run is recorded from the moment it is created — including runs you abandon.</div>
+
+  <div id="wcSeats" style="margin-top:14px"></div>
+  <div class="means" style="margin-top:12px"><b>Where this stands</b><span id="wcMeans">No run yet.</span></div>
+</section>
+
 <div class="toast" id="toast"></div>
 
 <!-- Sign-in overlay. DELIBERATELY placed here, inside <body> BEFORE the script block.
@@ -740,7 +779,7 @@ function defaults(){return{
  * EXPECTED_API = the backend build this frontend was written against.
  * The chip in the header shows "FE x · API y" and turns amber on mismatch, so a stale
  * GitHub Pages page or a stale Render backend is visible at a glance instead of silent. */
-const FE_VERSION="2.1.0", EXPECTED_API="2.1.0";
+const FE_VERSION="2.2.0", EXPECTED_API="2.2.0";
 let API_VERSION_SEEN=null;
 
 const POLICY=Object.freeze({monthlyPlanBhd:500, destination:"ISAC.L", status:"ON POLICY",
@@ -888,6 +927,113 @@ function authBootCheck(){
     if(t&&tokenExpired(t)){ tokenClear(); if(S&&S.backendUrl) showAuth("Your session expired. Sign in to reconnect."); }
   }catch(_){}
 }
+
+
+/* ═══════════ WILDCARD V2 — frontend shell ═════════════════════════════════════
+ * Deliberately isolated. Renders only inside its own hidden section, writes nothing to
+ * the portfolio state, and never touches render(). If every line of this failed, the
+ * dashboard would be unaffected. */
+let WC_RUN = null, WC_SEATS = null;
+
+function wcSetStatus(msg, tone){ const e=$("wcStatus"); if(!e)return; e.textContent=msg; e.style.color = tone==="bad"?"var(--risk)":tone==="good"?"var(--act)":"var(--muted-2)"; }
+
+async function wcLoadSeats(){
+  const base = S.backendUrl ? S.backendUrl.replace(/\/+$/,"") : null;
+  if(!base){ wcSetStatus("Connect your backend in Settings first — Wildcard needs it to record runs.","bad"); return; }
+  try{ const j = await apiJson(base+"/api/wildcard/seats"); WC_SEATS = j.seats||null; wcRenderSeats(); }
+  catch(e){ wcSetStatus("Couldn't load the committee seats: "+((e&&e.body&&e.body.error)||(e&&e.message)||e),"bad"); }
+}
+
+function wcRenderSeats(){
+  const host=$("wcSeats"); if(!host)return;
+  if(!WC_SEATS){ host.innerHTML=""; return; }
+  host.innerHTML = Object.entries(WC_SEATS).map(([k,v])=>{
+    const mode = "MANUAL";   // ruling 4: every seat starts manual; AUTO is opt-in per run
+    const auto = v.autoAvailable ? '<span class="wc-mode auto">AUTO available</span>' : '';
+    return '<div class="wc-seat" id="wcSeat_'+esc(k)+'">'
+      +   '<div class="r"><span class="nm">'+esc(v.label)+'</span>'
+      +     '<span class="wc-mode manual">'+mode+'</span>'+auto+'</div>'
+      +   '<div class="wc-note">'+esc(v.note||"")+'</div>'
+      +   '<div class="r" style="margin-top:8px">'
+      +     '<button class="btn sm" data-wc-copy="'+esc(k)+'">COPY PROMPT</button>'
+      +     '<button class="btn sm" data-wc-paste="'+esc(k)+'">PASTE RESPONSE</button>'
+      +   '</div>'
+      +   '<textarea data-wc-box="'+esc(k)+'" placeholder="Paste the full reply from '+esc(v.label)+' here, then press SAVE."></textarea>'
+      +   '<div class="r" style="margin-top:6px;display:none" data-wc-save-row="'+esc(k)+'">'
+      +     '<button class="btn sm" data-wc-save="'+esc(k)+'">SAVE RESPONSE</button>'
+      +   '</div>'
+      + '</div>';
+  }).join("");
+}
+
+async function wcCreateRun(){
+  const base = S.backendUrl ? S.backendUrl.replace(/\/+$/,"") : null;
+  if(!base){ wcSetStatus("Connect your backend in Settings first.","bad"); return; }
+  const t=[ ($("wc_t1").value||"").trim().toUpperCase(),
+            ($("wc_t2").value||"").trim().toUpperCase(),
+            ($("wc_t3").value||"").trim().toUpperCase() ].filter(Boolean);
+  if(t.length!==3){ wcSetStatus("Three tickers are required — no more, no fewer.","bad"); return; }
+  const b=$("wcDebate"); b.disabled=true; const label=b.textContent; b.textContent="Creating…";
+  try{
+    const j = await apiJson(base+"/api/wildcard/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({candidates:t})});
+    WC_RUN=j.run||null; if(j.seats) WC_SEATS=j.seats;
+    wcRenderSeats();
+    wcSetStatus("Run created for "+t.join(" / ")+". Work through the seats below — copy each prompt, paste the reply back.","good");
+    $("wcMeans").textContent = "Run "+(WC_RUN&&WC_RUN.id?String(WC_RUN.id).slice(0,8):"?")+" · stage NIGHT · nothing decided yet. NONE remains a valid outcome.";
+  }catch(e){
+    wcSetStatus("Couldn't create the run: "+((e&&e.body&&e.body.error)||(e&&e.message)||e),"bad");
+  }finally{ b.disabled=false; b.textContent=label; }
+}
+
+async function wcCopyPrompt(seat){
+  const base = S.backendUrl ? S.backendUrl.replace(/\/+$/,"") : null; if(!base) return;
+  const q = WC_RUN&&WC_RUN.id ? "?run="+encodeURIComponent(WC_RUN.id) : "";
+  try{
+    const j = await apiJson(base+"/api/wildcard/prompt/"+encodeURIComponent(seat)+q);
+    await navigator.clipboard.writeText(j.prompt||"");
+    toast(j.incomplete ? "Copied — but evidence is missing" : "Prompt copied");
+    if(j.incomplete) wcSetStatus("Copied "+seat+"'s prompt, but it is MISSING: "+(j.missing||[]).join(", ")+". Run those seats first, or record this as an incomplete audit.","bad");
+    else wcSetStatus("Copied "+seat+"'s prompt"+((j.evidenceUsed||[]).length?" including "+j.evidenceUsed.map(x=>x.seat).join(" + ")+"'s actual answers.":"."),"good");
+  }catch(e){
+    /* 409 = required prior evidence missing. Say so precisely rather than failing vaguely. */
+    const body=e&&e.body;
+    if(body&&body.missing) wcSetStatus("Cannot build "+seat+"'s prompt yet — it must audit: "+body.missing.join(", ")+". Do those seats first.","bad");
+    else wcSetStatus("Couldn't build the prompt: "+((body&&body.error)||(e&&e.message)||e),"bad");
+  }
+}
+
+async function wcSaveResponse(seat){
+  const base = S.backendUrl ? S.backendUrl.replace(/\/+$/,"") : null; if(!base) return;
+  if(!WC_RUN||!WC_RUN.id){ wcSetStatus("Create a run first.","bad"); return; }
+  const box=document.querySelector('[data-wc-box="'+seat+'"]');
+  const txt=box&&box.value?box.value.trim():"";
+  if(!txt){ wcSetStatus("Nothing pasted for "+seat+" yet.","bad"); return; }
+  const stage = (WC_SEATS&&WC_SEATS[seat]&&WC_SEATS[seat].stage)||"night";
+  try{
+    await apiJson(base+"/api/wildcard/seat",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({runId:WC_RUN.id, seat, stage, source:"manual", rawResponse:txt})});
+    if(box) box.value="";
+    const card=$("wcSeat_"+seat); if(card) card.classList.remove("open");
+    const row=document.querySelector('[data-wc-save-row="'+seat+'"]'); if(row) row.style.display="none";
+    wcSetStatus("Saved "+seat+"'s response (manual, stage "+stage+").","good");
+  }catch(e){ wcSetStatus("Couldn't save: "+((e&&e.body&&e.body.error)||(e&&e.message)||e),"bad"); }
+}
+
+/* One delegated listener rather than per-button wiring — the seat list is re-rendered,
+   and re-binding handlers to replaced nodes is exactly how the chat overlay broke once. */
+(function(){
+  const host=$("wcSeats");
+  if(host) host.addEventListener("click",function(ev){
+    const t=ev.target.closest("button"); if(!t)return;
+    const c=t.getAttribute("data-wc-copy"), p=t.getAttribute("data-wc-paste"), sv=t.getAttribute("data-wc-save");
+    if(c) wcCopyPrompt(c);
+    else if(p){ const card=$("wcSeat_"+p); if(card)card.classList.add("open");
+      const row=document.querySelector('[data-wc-save-row="'+p+'"]'); if(row)row.style.display="flex";
+      const box=document.querySelector('[data-wc-box="'+p+'"]'); if(box)box.focus(); }
+    else if(sv) wcSaveResponse(sv);
+  });
+  const d=$("wcDebate"); if(d) d.onclick=wcCreateRun;
+})();
 
 /* Wired directly, not in DOMContentLoaded: the markup above sits before this script block,
  * so it is guaranteed to exist by the time this line runs. */
@@ -2128,9 +2274,12 @@ function openChat(){$("chatOverlay").classList.add("open");renderChat();setTimeo
 function closeChat(){$("chatOverlay").classList.remove("open");}
 $("burger").onclick=(e)=>{e.stopPropagation();const nm=$("navmenu");if(!nm.classList.contains("open")){const r=e.currentTarget.getBoundingClientRect();nm.style.top=(r.bottom+6)+"px";nm.style.right=Math.max(12,(window.innerWidth-r.right))+"px";}nm.classList.toggle("open");};
 document.addEventListener("click",(e)=>{const nm=$("navmenu");if(nm&&nm.classList.contains("open")&&!nm.contains(e.target)&&e.target!==$("burger"))nm.classList.remove("open");});
-$("navDash").onclick=()=>{document.body.classList.remove("show-markets");$("navmenu").classList.remove("open");window.scrollTo({top:0,behavior:"smooth"});};
+$("navDash").onclick=()=>{document.body.classList.remove("show-markets");document.body.classList.remove("show-wildcard");$("navmenu").classList.remove("open");window.scrollTo({top:0,behavior:"smooth"});};
 $("navMarkets").onclick=()=>{document.body.classList.add("show-markets");$("navmenu").classList.remove("open");const t=document.querySelector(".sec-markets");if(t)setTimeout(()=>t.scrollIntoView({behavior:"smooth",block:"start"}),30);};
 $("navChat").onclick=()=>{$("navmenu").classList.remove("open");openChat();};
+$("navWildcard").onclick=()=>{document.body.classList.add("show-wildcard");$("navmenu").classList.remove("open");
+  const t=$("wildcardCard"); if(t)setTimeout(()=>t.scrollIntoView({behavior:"smooth",block:"start"}),30);
+  wcLoadSeats();};
 $("navSettings").onclick=()=>{$("navmenu").classList.remove("open");$("setBtn").click();};
 $("navEdit").onclick=()=>{$("navmenu").classList.remove("open");$("editBtn").click();};
 /* PRE-EXISTING BUG FIX (page-load crash). The chat overlay markup sits BELOW this script

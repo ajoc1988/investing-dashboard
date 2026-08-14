@@ -1455,6 +1455,49 @@ async function sbWc(method, path, body) {
 
 const WC_TICKER = /^[A-Z0-9.\-]{1,12}$/;
 
+/* The three stages are DISTINCT and all three must survive into the permanent record:
+ *   night  — Grok / Gemini / Perplexity gathering and auditing evidence
+ *   locked — Claude / DeepSeek / synthesis reasoning from the frozen pack
+ *   live   — the recheck before execution
+ * The first version collapsed anything non-live to 'night', which would have destroyed
+ * exactly the night→locked→live trail this module exists to preserve. Constrained set,
+ * rejected loudly — never coerced to a default. */
+const WC_STAGES = ['night', 'locked', 'live'];
+
+/* Which prior evidence a seat must see before it can honestly do its job.
+ * Perplexity audits Grok and Gemini — it cannot audit research it was never shown, and
+ * asking it to recreate that research independently would defeat the point of auditing. */
+const WC_REQUIRES = { perplexity: ['grok', 'gemini'] };
+
+/* Pure function so it can be tested without a database or a running server. */
+function buildSeatPrompt(seatKey, def, run, priorResponses) {
+  const parts = [def.label, '', def.brief];
+  const used = [], missing = [];
+  if (run && Array.isArray(run.candidates)) parts.push('', 'CANDIDATES: ' + run.candidates.join(', '));
+
+  const needs = WC_REQUIRES[seatKey] || [];
+  if (needs.length) {
+    parts.push('', 'EVIDENCE TO AUDIT — these are the actual responses from the earlier seats.',
+                   'Audit THESE. Do not substitute your own research for them.');
+    for (const n of needs) {
+      const r = (priorResponses || []).find(x => x.seat === n && x.stage === 'night' && x.status === 'ok' && x.raw_response);
+      if (r) {
+        used.push({ seat: n, source: r.source, chars: String(r.raw_response).length });
+        parts.push('', '--- ' + n.toUpperCase() + ' (' + r.source + ') ---', String(r.raw_response));
+      } else {
+        missing.push(n);
+      }
+    }
+  }
+
+  // Locked-stage seats see the frozen pack and nothing else.
+  if (def.stage === 'locked' && run && run.evidence_pack) {
+    parts.push('', 'LOCKED EVIDENCE PACK (this is your ONLY factual input):',
+                   JSON.stringify(run.evidence_pack, null, 1));
+  }
+  return { prompt: parts.join('\n'), evidenceUsed: used, missing };
+}
+
 // Create a run. The record exists from the FIRST action, before any seat is called —
 // the whole point of moving logging ahead of the debate engine. A run that is abandoned
 // half way is still a run, and still evidence about the process.
@@ -1505,23 +1548,46 @@ app.get('/api/wildcard/prompt/:seat', async (req, res) => {
   const def = WC_SEATS[seat];
   if (!def) return res.status(400).json({ error: 'unknown seat', known: Object.keys(WC_SEATS) });
   const runId = String(req.query.run || '');
-  let context = '';
-  if (/^[0-9a-f-]{36}$/i.test(runId)) {
-    try {
-      const [run] = await sbWc('GET', `wildcard_runs?id=eq.${runId}&select=candidates,evidence_pack`);
-      if (run) {
-        context = '\n\nCANDIDATES: ' + (run.candidates || []).join(', ');
-        // Locked-stage seats see the frozen pack and nothing else.
-        if (def.stage === 'locked' && run.evidence_pack) {
-          context += '\n\nLOCKED EVIDENCE PACK (this is your ONLY factual input):\n' + JSON.stringify(run.evidence_pack, null, 1);
-        }
-      }
-    } catch (e) { logUpstream('wildcard:prompt', e); }
+  const allowIncomplete = String(req.query.allowIncomplete || '') === '1';
+
+  // No run supplied: the generic role prompt only, and it says so rather than implying
+  // it carries evidence it does not have.
+  if (!runId) {
+    const { prompt } = buildSeatPrompt(seat, def, null, []);
+    return res.json({ seat, label: def.label, stage: def.stage, prompt,
+      evidenceUsed: [], incomplete: (WC_REQUIRES[seat] || []).length > 0,
+      missing: WC_REQUIRES[seat] || [],
+      note: 'Generic role prompt — no run supplied, so no prior evidence is attached.', ts: Date.now() });
+  }
+  if (!/^[0-9a-f-]{36}$/i.test(runId)) return res.status(400).json({ error: 'bad run id' });
+
+  let run = null, prior = [];
+  try {
+    [run] = await sbWc('GET', `wildcard_runs?id=eq.${runId}&select=candidates,evidence_pack`);
+    if (!run) return res.status(404).json({ error: 'run not found' });
+    prior = await sbWc('GET', `wildcard_seat_responses?run_id=eq.${runId}&select=seat,stage,source,status,raw_response`) || [];
+  } catch (e) {
+    // A store failure must NOT fall back to a bare prompt. Handing Perplexity a prompt with
+    // no evidence, while it believes it has some, is worse than refusing.
+    logUpstream('wildcard:prompt', e);
+    return res.status(502).json({ error: shortReason(String((e && e.message) || e)),
+      note: 'Refusing to build a prompt without being able to read the prior evidence.' });
+  }
+
+  const { prompt, evidenceUsed, missing } = buildSeatPrompt(seat, def, run, prior);
+  if (missing.length && !allowIncomplete) {
+    return res.status(409).json({
+      error: 'required prior evidence is missing', seat, missing, evidenceUsed,
+      note: 'Run those seats first, or re-request with allowIncomplete=1 to proceed deliberately. '
+          + 'An incomplete audit is recorded as incomplete, never presented as a full one.'
+    });
   }
   res.json({
-    seat, label: def.label, stage: def.stage,
-    prompt: def.label + '\n\n' + def.brief + context,
-    note: 'Paste the full reply back via POST /api/wildcard/seat with source:"manual".',
+    seat, label: def.label, stage: def.stage, prompt,
+    evidenceUsed, missing, incomplete: missing.length > 0,
+    note: missing.length
+      ? 'PROCEEDING INCOMPLETE — missing: ' + missing.join(', ') + '. Record this against the run.'
+      : 'Paste the full reply back via POST /api/wildcard/seat with source:"manual".',
     ts: Date.now()
   });
 });
@@ -1535,6 +1601,8 @@ app.post('/api/wildcard/seat', async (req, res) => {
   // Ruling 4: source is mandatory and explicit. Never defaulted, never guessed.
   if (b.source !== 'api' && b.source !== 'manual') return res.status(400).json({ error: 'source must be "api" or "manual"' });
   if (typeof b.rawResponse !== 'string' || !b.rawResponse.trim()) return res.status(400).json({ error: 'rawResponse required' });
+  // Stage is never defaulted. An unrecognised stage is a bug in the caller, not something to guess at.
+  if (!WC_STAGES.includes(b.stage)) return res.status(400).json({ error: 'stage must be one of: ' + WC_STAGES.join(', ') });
   try {
     const rows = await sbWc('POST', 'wildcard_seat_responses', [{
       run_id: b.runId, stage: b.stage === 'live' ? 'live' : 'night', seat,
