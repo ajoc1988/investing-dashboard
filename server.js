@@ -27,7 +27,7 @@ const { resolve: resolveCommitteeAction } = require('./committee-resolver');
  * by hand whenever the backend is deployed. Surfaced via /api/health so the frontend
  * can compare it against its own constant and flag frontend/backend deployment drift.
  * The frontend expects API_VERSION to match its EXPECTED_API constant.               */
-const API_VERSION = '2.5.0';
+const API_VERSION = '2.6.0';
 
 const app = express();
 app.use(express.json({ limit: '128kb' }));
@@ -1781,6 +1781,37 @@ app.post('/api/wildcard/seat', async (req, res) => {
   if (typeof b.rawResponse !== 'string' || !b.rawResponse.trim()) return res.status(400).json({ error: 'rawResponse required' });
   // Stage is never defaulted. An unrecognised stage is a bug in the caller, not something to guess at.
   if (!WC_STAGES.includes(b.stage)) return res.status(400).json({ error: 'stage must be one of: ' + WC_STAGES.join(', ') });
+
+  /* ONCE LOCKED, THE NIGHT IS CLOSED.
+   *
+   * Freezing already protects the pack — a late night answer could not change it, because
+   * buildEvidencePack only runs at lock time. But accepting the write anyway was its own
+   * defect: the row would be stored, the API would answer 200, and the owner would believe
+   * he had replaced a piece of evidence when the frozen pack was untouched. A write that
+   * succeeds while achieving nothing is worse than one that fails.
+   *
+   * Locked- and live-stage writes stay open. Those are Claude, DeepSeek, the synthesis and
+   * the recheck — the whole reason the pack was frozen in the first place. */
+  if (b.stage === 'night') {
+    let run;
+    try {
+      [run] = await sbWc('GET', `wildcard_runs?id=eq.${b.runId}&select=evidence_locked_at,evidence_pack_hash`);
+    } catch (e) {
+      // Refuse rather than write blind. If the lock state cannot be read, storing evidence
+      // that may already be frozen is exactly the silent corruption this guard prevents.
+      logUpstream('wildcard:seat:lockcheck', e);
+      return res.status(502).json({ error: shortReason(String((e && e.message) || e)),
+        note: 'Refusing to store night evidence without being able to confirm the run is unlocked.' });
+    }
+    if (!run) return res.status(404).json({ error: 'run not found' });
+    if (run.evidence_locked_at || run.evidence_pack_hash) {
+      return res.status(409).json({ error: 'evidence is locked', locked: true,
+        packHash: run.evidence_pack_hash || null, lockedAt: run.evidence_locked_at || null,
+        note: 'This run\'s night evidence was frozen. Replace responses BEFORE locking — '
+            + 'afterwards the pack is immutable and a new answer would change nothing.' });
+    }
+  }
+
   try {
     const rows = await sbWc('POST', 'wildcard_seat_responses', [{
       /* The stage is written EXACTLY as validated against WC_STAGES above.

@@ -577,7 +577,7 @@
   <button id="navDash">Dashboard</button>
   <button id="navMarkets">Markets &amp; data</button>
   <button id="navChat">Chat with AI</button>
-  <button id="navWildcard">⚡ Wildcard (experimental)</button>
+  <button id="navWildcard"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" style="vertical-align:-2px;margin-right:6px"><path fill="currentColor" d="M13 2 4 14h6l-1 8 9-12h-6l1-8z"/></svg>Wildcard (experimental)</button>
   <div class="navsep"></div>
   <button id="navEdit">✎ Edit portfolio</button>
   <button id="navSettings">⚙ Settings &amp; market data</button>
@@ -865,7 +865,7 @@
 <div class="wc-overlay" id="wcOverlay">
   <div class="wc-head">
     <div style="flex:1">
-      <div class="t">⚡ WILDCARD</div>
+      <div class="t"><svg viewBox="0 0 24 24" width="21" height="21" aria-hidden="true" style="vertical-align:-3px;margin-right:4px"><path fill="currentColor" d="M13 2 4 14h6l-1 8 9-12h-6l1-8z"/></svg>WILDCARD</div>
       <div class="s">EXPERIMENTAL TRADING SANDBOX · NOT YOUR PORTFOLIO</div>
     </div>
     <button class="x" id="wcClose" aria-label="Leave Wildcard">×</button>
@@ -1002,7 +1002,7 @@ function defaults(){return{
  * EXPECTED_API = the backend build this frontend was written against.
  * The chip in the header shows "FE x · API y" and turns amber on mismatch, so a stale
  * GitHub Pages page or a stale Render backend is visible at a glance instead of silent. */
-const FE_VERSION="2.5.0", EXPECTED_API="2.5.0";
+const FE_VERSION="2.6.0", EXPECTED_API="2.6.0";
 let API_VERSION_SEEN=null;
 
 const POLICY=Object.freeze({monthlyPlanBhd:500, destination:"ISAC.L", status:"ON POLICY",
@@ -1162,11 +1162,16 @@ let WC_RUN = null, WC_SEATS = null, WC_RESP = [], WC_UI = {};
  * seat in it has an OK response stored. This is derived from the DATABASE, never from a
  * counter held in the page — close the app mid-run and you resume exactly where you were. */
 const WC_FLOW = [
-  { key:"evidence", n:"1 EVIDENCE",  seats:["grok","gemini"] },
-  { key:"audit",    n:"2 AUDIT",     seats:["perplexity"] },
-  { key:"test",     n:"3 TRADE TEST",seats:["claude","deepseek"] },
-  { key:"decision", n:"4 DECISION",  seats:["synthesis"] }
+  { key:"evidence", n:"1 EVIDENCE", seats:["grok","gemini"] },
+  { key:"audit",    n:"2 AUDIT",    seats:["perplexity"] },
+  /* REVIEW has no seats of its own. It is the deliberate pause where the evidence about to
+     be frozen can be read and, if it is rubbish, REPLACED — before it becomes immutable.
+     It completes when the pack is locked, not when a seat answers. */
+  { key:"review",   n:"3 REVIEW",   seats:[] },
+  { key:"test",     n:"4 TRADE",    seats:["claude","deepseek"] },
+  { key:"decision", n:"5 DECISION", seats:["synthesis"] }
 ];
+const WC_PACK_SEATS = ["grok","gemini","perplexity"];
 const WC_SUB  = { grok:"LIVE", gemini:"RESEARCH", perplexity:"AUDIT EVIDENCE",
                   claude:"BUILD THE TRADE", deepseek:"TRY TO KILL IT", synthesis:"DECIDE" };
 const WC_SHORT= { grok:"GROK", gemini:"GEMINI", perplexity:"PERPLEXITY",
@@ -1180,9 +1185,14 @@ function wcBase(){ return S.backendUrl ? S.backendUrl.replace(/\/+$/,"") : null;
 function wcLabel(seat){ return (WC_SEATS&&WC_SEATS[seat]&&WC_SEATS[seat].label) || (WC_SHORT[seat]||seat); }
 function wcDone(seat){ return WC_RESP.some(r=>r.seat===seat && r.status==="ok"); }
 
+/* A step is finished when its own condition is met — for REVIEW that is the lock, for every
+   other step it is every seat answering. Derived from stored state, never a counter. */
+function wcStepDone(st){
+  return st.key==="review" ? wcLocked() : st.seats.every(wcDone);
+}
 /* The first step that is not finished. Never advances past DECISION. */
 function wcStepNow(){
-  for(let i=0;i<WC_FLOW.length;i++) if(!WC_FLOW[i].seats.every(wcDone)) return i;
+  for(let i=0;i<WC_FLOW.length;i++) if(!wcStepDone(WC_FLOW[i])) return i;
   return WC_FLOW.length-1;
 }
 /* Mode is what the SERVER says unless you deliberately switched this seat this run. */
@@ -1246,22 +1256,25 @@ function wcRender(){
 
   for(let i=0;i<cur;i++) h+='<div class="wc-row done"><span class="nm">'+esc(WC_FLOW[i].n)+'</span><span>DONE ✓</span></div>';
 
-  /* Step 3 is gated on the pack. Claude and DeepSeek exist to reason from IDENTICAL frozen
-     evidence, so until it is frozen there is nothing honest for them to read. */
-  if(WC_FLOW[cur].key==="test" && !wcLocked()){
-    h += wcLockHtml();
+  /* REVIEW is the last moment the evidence can be changed. TRADE and DECISION sit behind the
+     lock — Claude and DeepSeek exist to reason from IDENTICAL frozen evidence, so until it is
+     frozen there is nothing honest to send them. */
+  const key = WC_FLOW[cur].key;
+  if(key==="review"){
+    h += wcReviewHtml() + wcLockHtml();
   } else {
-    if(WC_FLOW[cur].key==="test") h += wcLockedStripHtml();
-    h += WC_FLOW[cur].key==="decision" ? wcDecisionHtml()
-                                       : WC_FLOW[cur].seats.map(wcCardHtml).join("");
+    if(key==="test" || key==="decision") h += wcLockedStripHtml();
+    h += key==="decision" ? wcDecisionHtml() : WC_FLOW[cur].seats.map(wcCardHtml).join("");
   }
-  if(WC_FLOW[cur].key==="decision" && wcLocked()) h = wcLockedStripHtml() + h;
 
   for(let i=cur+1;i<WC_FLOW.length;i++){
     const s=WC_FLOW[i];
-    const w = s.key==="audit" ? "waiting for evidence"
-            : s.key==="test"  ? "waiting for locked pack" : "waiting";
-    const nm= s.key==="test" ? "CLAUDE + DEEPSEEK" : s.seats.map(function(x){return WC_SHORT[x]||x;}).join(" + ");
+    const w = s.key==="audit"  ? "waiting for evidence"
+            : s.key==="review" ? "waiting for the audit"
+            : s.key==="test"   ? "waiting for locked pack" : "waiting";
+    const nm= s.key==="review" ? "REVIEW + LOCK"
+            : s.key==="test"   ? "CLAUDE + DEEPSEEK"
+            : s.seats.map(function(x){return WC_SHORT[x]||x;}).join(" + ");
     h+='<div class="wc-row"><span class="nm">'+esc(nm)+'</span><span>'+esc(w)+'</span></div>';
   }
 
@@ -1274,6 +1287,48 @@ function wcRender(){
 function wcLocked(){ return !!(WC_RUN && WC_RUN.evidence_pack_hash); }
 function wcShortHash(){ const h=(WC_RUN&&WC_RUN.evidence_pack_hash)||""; return h?h.slice(0,12):""; }
 
+/* ── REVIEW ────────────────────────────────────────────────────────────────────
+ * The last moment the evidence can be changed, and the reason this step exists: you could
+ * previously SEE a stale or wrong answer under VIEW DEBATE but had no clean way to correct
+ * it before it was frozen.
+ *
+ * REPLACE, never edit. Rewriting the text of what Grok said would destroy provenance — the
+ * record would claim a model produced words it never produced. Replacing stores a NEW
+ * response with its own source, provider, model and timestamp; the old one stays in history;
+ * and the lock still freezes the latest successful answer per seat, so no lock logic changes. */
+function wcReviewHtml(){
+  let h = '<div class="wc-note" style="margin-bottom:10px">Read what is about to be frozen. '
+        + 'If an answer is stale or wrong, <b>replace</b> it — the original stays in the record.</div>';
+  h += WC_PACK_SEATS.map(function(seat){
+    const rows = WC_RESP.filter(function(r){ return r.seat===seat && r.stage==="night" && r.status==="ok"; });
+    const r = rows.length ? rows[rows.length-1] : null;
+    const supers = rows.length>1 ? (rows.length-1) : 0;
+    const busy = WC_UI[seat]==="replacing";
+    let c = '<div class="wc-card'+(busy?" open":"")+'" id="wcSeat_'+esc(seat)+'">'
+      + '<div class="hd"><div class="nm">'+esc(WC_SHORT[seat]||seat)
+      +   '<div class="sb">'+esc((r&&r.source?String(r.source).toUpperCase():"—")
+      +     (r&&r.provider?" · "+r.provider:"")+" · "+String((r&&r.raw_response||"").length)+" CHARS")+'</div></div>'
+      + '<span class="wc-badge '+(r?"ready":"wait")+'">'+(r?"READY":"MISSING")+'</span></div>';
+    if(r){
+      c += '<details class="wc-det" style="margin-top:9px;box-shadow:none;border:1px solid #E4E9F1">'
+        +  '<summary>VIEW RESPONSE</summary><div class="in"><pre>'+esc(String(r.raw_response||""))+'</pre></div></details>';
+      if(supers) c += '<div class="wc-note">'+supers+' earlier '+(supers===1?"answer":"answers")+' superseded and kept in history.</div>';
+    } else {
+      c += '<div class="wc-note bad">No successful answer stored for this seat yet.</div>';
+    }
+    c += '<div class="wc-btnrow">'
+      +  '<button class="wc-btn sec" data-wc-copy="'+esc(seat)+'">COPY PROMPT</button>'
+      +  '<button class="wc-btn'+(r?" sec":"")+'" data-wc-paste="'+esc(seat)+'">'+(r?"REPLACE":"PASTE ANSWER")+'</button>'
+      +  '</div>'
+      +  '<textarea class="wc-ta" data-wc-box="'+esc(seat)+'" placeholder="Paste the new reply here, then press SAVE. The old answer is kept."></textarea>'
+      +  '<div class="wc-btnrow" style="display:none" data-wc-save-row="'+esc(seat)+'">'
+      +    '<button class="wc-btn" data-wc-save="'+esc(seat)+'">SAVE REPLACEMENT</button></div>'
+      +  '</div>';
+    return c;
+  }).join("");
+  return h;
+}
+
 /* The lock gate. One button, and it will not pretend: if a night seat is missing the server
    refuses and says which one. */
 function wcLockHtml(){
@@ -1281,9 +1336,9 @@ function wcLockHtml(){
   return '<div class="wc-card"><div class="hd"><div class="nm">LOCK THE EVIDENCE'
     + '<div class="sb">FREEZE WHAT THE NIGHT SEATS FOUND</div></div>'
     + '<span class="wc-badge '+(busy?"run":"wait")+'">'+(busy?"LOCKING":"NOT LOCKED")+'</span></div>'
-    + '<div class="wc-note">Grok, Gemini and Perplexity are done. Freezing their answers now means '
-    + 'Claude and DeepSeek both read the <b>same</b> evidence — that is the whole point of the test. '
-    + 'Once locked it cannot drift.</div>'
+    + '<div class="wc-note">Freezing these answers means Claude and DeepSeek both read the '
+    + '<b>same</b> evidence — that is the whole point of the test. '
+    + '<b>After locking, nothing above can be replaced.</b></div>'
     + '<div class="wc-btnrow"><button class="wc-btn" data-wc-lock="1"'+(busy?" disabled":"")+'>LOCK EVIDENCE</button></div></div>';
 }
 /* PACK LOCKED strip + a read-only view of the pack.
@@ -1494,10 +1549,19 @@ async function wcSaveResponse(seat){
   try{
     await apiJson(base+"/api/wildcard/seat",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({runId:WC_RUN.id, seat, stage, source:"manual", rawResponse:txt})});
+    const wasReplacement = WC_RESP.some(function(r){ return r.seat===seat && r.stage==="night" && r.status==="ok"; });
     delete WC_UI[seat];
     await wcRefresh();
-    wcSetStatus("Saved. "+(wcStepNow()===WC_FLOW.length-1 && wcDone("synthesis") ? "That is the run complete." : "Next step is open above."),"good");
-  }catch(e){ wcSetStatus("Couldn't save: "+wcErr(e),"bad"); }
+    wcSetStatus(wasReplacement
+      ? (WC_SHORT[seat]||seat)+" replaced. The previous answer is kept in the record."
+      : "Saved. "+(wcStepNow()===WC_FLOW.length-1 && wcDone("synthesis") ? "That is the run complete." : "Next step is open above."),"good");
+  }catch(e){
+    /* 409 = the run is locked. Say exactly that rather than a generic failure — the whole
+       point of the guard is that the owner learns his write did nothing. */
+    const b=e&&e.body;
+    if(b&&b.locked) wcSetStatus("This run's evidence is already locked, so nothing was changed. Replacements must happen before locking.","bad");
+    else wcSetStatus("Couldn't save: "+wcErr(e),"bad");
+  }
 }
 
 /* One delegated listener on a container that is NEVER replaced. The cards inside are
@@ -2580,7 +2644,7 @@ function voteBreakdownHTML(j){
   h+=`</tbody></table></div>`;
   return h;
 }
-function geoCardHTML(g){if(!g)return'';if(g.error){return `<div class="geo-card" style="border-color:rgba(229,72,77,.4);background:rgba(229,72,77,.06)"><div class="geo-h" style="color:#f0a0a3">🌍 Geopolitical Risk Officer — couldn't run</div><div style="font-size:12px;color:var(--muted);margin-top:6px">Geo officer${g.model?" ("+esc(g.model)+")":""} error: ${esc(g.error)}</div>${g.note?`<div style="font-size:11px;color:var(--muted-2);margin-top:5px">Reply: ${esc(g.note)}</div>`:''}</div>`;}let h=`<div class="geo-card"><div class="geo-h">🌍 Geopolitical Risk Officer <span style="font-weight:400;color:var(--muted-2);font-size:11px">· ${esc(g.by==='grok'?'Grok':'Gemini')}${g.model?" "+esc(g.model):""} · separate from the vote, not a verdict</span></div>`;if(g.summary)h+=`<div style="font-size:12.5px;color:var(--muted);margin-top:7px">${esc(g.summary)}</div>`;if(Array.isArray(g.events)&&g.events.length)h+=`<ul style="margin:8px 0 0;padding-left:18px;font-size:12.5px;color:var(--fg)">${g.events.map(e=>"<li style='margin-bottom:3px'>"+esc(e)+"</li>").join("")}</ul>`;if(g.couldMakeWrong)h+=`<div style="font-size:12.5px;margin-top:9px"><b style="color:var(--risk)">Could make the committee wrong:</b> ${esc(g.couldMakeWrong)}</div>`;if(g.watch)h+=`<div style="font-size:12.5px;margin-top:5px"><b style="color:var(--watch)">Watch:</b> ${esc(g.watch)}</div>`;return h+`</div>`;}
+function geoCardHTML(g){if(!g)return'';if(g.error){return `<div class="geo-card" style="border-color:rgba(229,72,77,.4);background:rgba(229,72,77,.06)"><div class="geo-h" style="color:#f0a0a3"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" style="vertical-align:-2px;margin-right:5px"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.7"/><ellipse cx="12" cy="12" rx="4" ry="9" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M3.2 9h17.6M3.2 15h17.6" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>Geopolitical Risk Officer — couldn't run</div><div style="font-size:12px;color:var(--muted);margin-top:6px">Geo officer${g.model?" ("+esc(g.model)+")":""} error: ${esc(g.error)}</div>${g.note?`<div style="font-size:11px;color:var(--muted-2);margin-top:5px">Reply: ${esc(g.note)}</div>`:''}</div>`;}let h=`<div class="geo-card"><div class="geo-h"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" style="vertical-align:-2px;margin-right:5px"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.7"/><ellipse cx="12" cy="12" rx="4" ry="9" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M3.2 9h17.6M3.2 15h17.6" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>Geopolitical Risk Officer <span style="font-weight:400;color:var(--muted-2);font-size:11px">· ${esc(g.by==='grok'?'Grok':'Gemini')}${g.model?" "+esc(g.model):""} · separate from the vote, not a verdict</span></div>`;if(g.summary)h+=`<div style="font-size:12.5px;color:var(--muted);margin-top:7px">${esc(g.summary)}</div>`;if(Array.isArray(g.events)&&g.events.length)h+=`<ul style="margin:8px 0 0;padding-left:18px;font-size:12.5px;color:var(--fg)">${g.events.map(e=>"<li style='margin-bottom:3px'>"+esc(e)+"</li>").join("")}</ul>`;if(g.couldMakeWrong)h+=`<div style="font-size:12.5px;margin-top:9px"><b style="color:var(--risk)">Could make the committee wrong:</b> ${esc(g.couldMakeWrong)}</div>`;if(g.watch)h+=`<div style="font-size:12.5px;margin-top:5px"><b style="color:var(--watch)">Watch:</b> ${esc(g.watch)}</div>`;return h+`</div>`;}
 /* Deep Triggers cache banner (V2 §3.8). The cache lives on the BACKEND so it survives
  * reloads and protects provider quota across devices. The frontend's only job is to make
  * it VISIBLE and offer an explicit escape hatch — a silent cache would be dishonest about
