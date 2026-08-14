@@ -27,7 +27,7 @@ const { resolve: resolveCommitteeAction } = require('./committee-resolver');
  * by hand whenever the backend is deployed. Surfaced via /api/health so the frontend
  * can compare it against its own constant and flag frontend/backend deployment drift.
  * The frontend expects API_VERSION to match its EXPECTED_API constant.               */
-const API_VERSION = '2.2.0';
+const API_VERSION = '2.3.0';
 
 const app = express();
 app.use(express.json({ limit: '128kb' }));
@@ -1422,20 +1422,35 @@ const WC_SEATS = {
                 brief: 'Combine the evidence and the disagreements. Do NOT average votes. Decide.' }
 };
 
-/* Ruling 4: Grok starts MANUAL regardless of whether a key exists. It has produced stale and
- * confidently wrong market data, so AUTO must be earned, not assumed. Every other seat offers
- * AUTO only when its provider actually has a key — and MANUAL is always available. */
+/* Which numbered step of the owner-facing flow each seat belongs to. The frontend shows
+ * ONE step at a time, so it needs this from the server rather than hard-coding a seat list
+ * that would drift the moment a seat is added or removed. */
+const WC_STEPS = { grok: 'evidence', gemini: 'evidence', perplexity: 'audit',
+                   claude: 'test', deepseek: 'test', synthesis: 'decision' };
+
+/* Ruling 4 stands: MANUAL always exists for every seat, and Grok is MANUAL by ruling
+ * regardless of whether a key exists — it has produced stale and confidently wrong market
+ * data, so AUTO must be earned.
+ *
+ * AMENDED 14 Aug: MANUAL is no longer the DEFAULT for every seat. Defaulting everything to
+ * manual reproduced the five-app copy/paste workflow inside a nicer interface, which is the
+ * opposite of the point. A seat whose provider has a working key now defaults to AUTO; a
+ * failure exposes MANUAL immediately. "MANUAL is always possible" and "MANUAL is always
+ * first" are different claims, and only the first one was ever the ruling. */
 function wcSeatModes() {
   const out = {};
   for (const [k, v] of Object.entries(WC_SEATS)) {
     const hasKey = providerHasKey(v.provider);
+    const autoAvailable = k === 'grok' ? false : hasKey;
     out[k] = {
       label: v.label, stage: v.stage, provider: v.provider,
-      autoAvailable: k === 'grok' ? false : hasKey,
-      defaultMode: 'manual',
+      step: WC_STEPS[k] || 'evidence',
+      autoAvailable,
+      defaultMode: autoAvailable ? 'auto' : 'manual',
+      manualAlwaysAvailable: true,
       note: k === 'grok'
         ? 'MANUAL by ruling — Grok has returned stale/incorrect data before; AUTO must be earned.'
-        : (hasKey ? 'AUTO available; MANUAL always available.' : 'No API key — MANUAL only.')
+        : (hasKey ? 'AUTO by default; MANUAL if it fails.' : 'No API key — MANUAL only.')
     };
   }
   return out;
@@ -1605,7 +1620,13 @@ app.post('/api/wildcard/seat', async (req, res) => {
   if (!WC_STAGES.includes(b.stage)) return res.status(400).json({ error: 'stage must be one of: ' + WC_STAGES.join(', ') });
   try {
     const rows = await sbWc('POST', 'wildcard_seat_responses', [{
-      run_id: b.runId, stage: b.stage === 'live' ? 'live' : 'night', seat,
+      /* The stage is written EXACTLY as validated against WC_STAGES above.
+       * This line previously read `b.stage === 'live' ? 'live' : 'night'`, which silently
+       * collapsed 'locked' into 'night' ON THE WAY INTO THE DATABASE — the same defect that
+       * was caught and only half-fixed: the validation was corrected, the write was not.
+       * A locked-stage response recorded as 'night' destroys the night→locked→live trail
+       * this module exists to preserve, and it would have looked completely normal. */
+      run_id: b.runId, stage: b.stage, seat,
       provider: b.provider || WC_SEATS[seat].provider,
       model: b.model || WC_SEATS[seat].model || null,
       source: b.source,

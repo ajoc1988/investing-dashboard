@@ -9,7 +9,10 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
   :root{
-    --ink:#05070E; --panel:#0D1220; --panel-2:#141C2E; --line:#27344E; --line-soft:#1a2334;
+    /* Deep navy, deliberately BLUE rather than near-black: the dashboard is the dark,
+       serious, long-horizon world. Wildcard is the light, bright one. The contrast between
+       the two is doing real work — it is how you know at a glance which money you are in. */
+    --ink:#040B1B; --panel:#0A1527; --panel-2:#122036; --line:#233450; --line-soft:#182338;
     --text:#EAF1FB; --muted:#8893AC; --muted-2:#5b6480;
     --act:#16FF9E; --watch:#FFC400; --risk:#FF2E63; --hold:#8691A8; --data:#00E5FF;
     --act-dim:rgba(22,255,158,.12); --watch-dim:rgba(255,196,0,.12);
@@ -45,34 +48,104 @@
   .navmenu button:hover,.navmenu button:focus-visible{background:var(--panel-2)}
   .navsep{height:1px; background:var(--line-soft); margin:4px 2px}
   body:not(.show-markets) .sec-markets{display:none !important}
-  /* ── WILDCARD: a FULL-SCREEN TAKEOVER, not a panel on the dashboard ──────────
-     Different mission, different money, different rules. While it is open the portfolio
-     is not merely scrolled away, it is not on screen at all — so the two can never be
-     read as one instruction set. Amber throughout, against the dashboard's cyan/green,
-     so a glance tells you which mode you are in. */
-  .wc-overlay{position:fixed; inset:0; z-index:85; background:#0A0704; display:none; flex-direction:column;
-    padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom); border-top:3px solid var(--watch)}
+  /* ── WILDCARD: a FULL-SCREEN TAKEOVER, and a DELIBERATELY OPPOSITE VISUAL WORLD ────
+     The dashboard is dark navy. Wildcard is light and bright. That is the whole point:
+     one glance, from across the room, tells you which mission you are in. While it is
+     open the portfolio is not merely scrolled away, it is not on screen at all — so the
+     two instruction sets can never be read as one.
+
+     It is also STEP-DRIVEN. Only the step you can act on right now is shown as a card.
+     Finished steps collapse to a tick; future steps are one greyed line. On a phone the
+     question "what do I press next?" must be answerable without scrolling. */
+  .wc-overlay{position:fixed; inset:0; z-index:85; background:#EEF2F8; display:none; flex-direction:column;
+    padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom); color:#101828}
   .wc-overlay.open{display:flex}
-  .wc-head{display:flex; align-items:center; gap:10px; padding:14px 16px; border-bottom:1px solid rgba(255,196,0,.28);
-    background:linear-gradient(180deg,rgba(255,196,0,.10),rgba(255,196,0,.02))}
-  .wc-head .t{font-family:var(--disp); font-weight:700; font-size:15px; color:var(--watch); letter-spacing:.5px}
-  .wc-head .s{font-family:var(--mono); font-size:10px; color:var(--muted-2)}
-  .wc-body{flex:1; overflow-y:auto; padding:16px; max-width:760px; width:100%; margin:0 auto; box-sizing:border-box}
-  .wc-strip{font-family:var(--mono); font-size:10.5px; letter-spacing:.4px; color:var(--watch);
-    border:1px dashed rgba(255,196,0,.45); border-radius:var(--r-sm); padding:8px 10px; text-align:center; margin-bottom:14px}
-  .wc-warn{border:1px solid rgba(255,196,0,.45); background:rgba(255,196,0,.06); border-radius:var(--r-sm); padding:11px 13px; font-size:12px; line-height:1.55; color:#f0d493}
-  .wc-tickers{display:flex; gap:8px; margin:14px 0}
-  .wc-tickers input{flex:1; min-width:0; background:#12100A; border:1px solid rgba(255,196,0,.35); border-radius:10px; color:var(--watch); font-family:var(--mono); font-size:17px; text-transform:uppercase; padding:13px 10px; text-align:center}
-  .wc-go{width:100%; background:rgba(255,196,0,.14); border:1px solid rgba(255,196,0,.5); color:var(--watch)}
-  .wc-seat{border:1px solid rgba(255,196,0,.20); border-radius:var(--r-sm); padding:11px 13px; margin-top:9px; background:rgba(255,196,0,.03)}
-  .wc-seat .r{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
-  .wc-seat .nm{font-weight:600; font-size:13px; flex:1; min-width:150px; color:#f4e6c4}
-  .wc-mode{font-family:var(--mono); font-size:10px; padding:3px 8px; border-radius:20px; border:1px solid var(--line)}
-  .wc-mode.manual{color:var(--watch); border-color:rgba(255,196,0,.5)}
-  .wc-mode.auto{color:var(--act); border-color:rgba(47,191,113,.45)}
-  .wc-seat textarea{width:100%; box-sizing:border-box; margin-top:8px; background:#12100A; border:1px solid rgba(255,196,0,.28); border-radius:8px; color:var(--text); font-family:var(--body); font-size:12px; padding:8px; min-height:70px; display:none}
-  .wc-seat.open textarea{display:block}
-  .wc-note{font-size:11px; color:var(--muted-2); margin-top:5px; line-height:1.45}
+  .wc-head{display:flex; align-items:center; gap:10px; padding:13px 16px; color:#fff;
+    background:linear-gradient(115deg,#FF8A00 0%,#FF3D77 52%,#A62BFF 100%)}
+  .wc-head .t{font-family:var(--disp); font-weight:700; font-size:20px; letter-spacing:.3px; line-height:1.1}
+  .wc-head .s{font-family:var(--mono); font-size:9.5px; letter-spacing:.5px; opacity:.92; margin-top:3px}
+  .wc-head .x{width:36px; height:36px; flex:none; border-radius:11px; background:rgba(255,255,255,.22);
+    color:#fff; font-size:21px; line-height:1; border:none}
+  .wc-body{flex:1; overflow-y:auto; padding:13px 13px 40px; max-width:620px; width:100%; margin:0 auto; box-sizing:border-box}
+  .wc-strip{font-family:var(--mono); font-size:9.5px; letter-spacing:.4px; color:#667085; background:#fff;
+    border-radius:12px; padding:9px 8px; text-align:center; box-shadow:0 1px 2px rgba(16,24,40,.07); margin-bottom:13px}
+  .wc-lbl{font-family:var(--mono); font-size:9.5px; letter-spacing:1.4px; color:#98A2B3; margin:2px 0 8px}
+
+  /* progress rail — four steps, one highlighted */
+  .wc-rail{display:flex; gap:5px; margin-bottom:13px}
+  .wc-rail .st{flex:1; text-align:center; font-family:var(--mono); font-size:8.5px; letter-spacing:.2px;
+    padding:9px 1px; border-radius:10px; background:#E1E7F0; color:#98A2B3; white-space:nowrap; overflow:hidden}
+  .wc-rail .st.done{background:#D6F6E5; color:#067647}
+  .wc-rail .st.now{background:linear-gradient(115deg,#FF8A00,#FF3D77); color:#fff; font-weight:700}
+
+  .wc-tick{font-family:var(--mono); font-size:15px; font-weight:700; color:#101828; letter-spacing:.5px;
+    text-align:center; margin-bottom:12px}
+
+  /* the one card you act on */
+  .wc-card{background:#fff; border-radius:16px; padding:14px; margin-bottom:10px; box-shadow:0 1px 3px rgba(16,24,40,.10)}
+  .wc-card .hd{display:flex; align-items:flex-start; gap:9px}
+  .wc-card .nm{flex:1; min-width:0; font-weight:700; font-size:15.5px; color:#101828; line-height:1.2}
+  .wc-card .sb{font-family:var(--mono); font-size:9.5px; letter-spacing:.7px; color:#98A2B3; margin-top:3px}
+  .wc-badge{font-family:var(--mono); font-size:9px; padding:5px 9px; border-radius:20px; font-weight:700;
+    letter-spacing:.4px; flex:none; white-space:nowrap}
+  .wc-badge.wait{background:#EDF0F5; color:#98A2B3}
+  .wc-badge.run{background:#DDEEFF; color:#0B63CE}
+  .wc-badge.ready{background:#D6F6E5; color:#067647}
+  .wc-badge.fail{background:#FFE6EA; color:#C01048}
+  .wc-badge.auto{background:#EBE2FF; color:#6927DA}
+  .wc-badge.manual{background:#FFEFD3; color:#B54708}
+
+  /* big finger-sized buttons — this is used one-handed, at night */
+  .wc-btn{display:block; width:100%; border-radius:14px; padding:15px 12px; font-size:15px; font-weight:700;
+    color:#fff; border:none; background:linear-gradient(115deg,#FF8A00,#FF3D77);
+    box-shadow:0 4px 14px rgba(255,61,119,.28); font-family:var(--body)}
+  .wc-btn.sec{background:#fff; color:#344054; border:1.5px solid #D0D5DD; box-shadow:none}
+  .wc-btn.go{background:linear-gradient(115deg,#12B76A,#039855); box-shadow:0 4px 14px rgba(3,152,85,.28)}
+  .wc-btn:disabled{opacity:.45}
+  .wc-btnrow{display:flex; gap:8px; margin-top:10px}
+  .wc-btnrow .wc-btn{padding:12px 8px; font-size:13px}
+
+  .wc-tickers{display:flex; gap:8px; margin:0 0 10px}
+  .wc-tickers input{flex:1; min-width:0; background:#fff; border:1.5px solid #D0D5DD; border-radius:14px;
+    color:#101828; font-family:var(--mono); font-size:17px; font-weight:700; text-transform:uppercase;
+    padding:15px 4px; text-align:center}
+  .wc-tickers input:focus{outline:none; border-color:#FF3D77; box-shadow:0 0 0 3px rgba(255,61,119,.16)}
+
+  /* finished = a tick. future = one grey line. never a card. */
+  .wc-row{display:flex; align-items:center; gap:8px; padding:10px 12px; border-radius:12px; background:#E4E9F1;
+    font-family:var(--mono); font-size:10px; letter-spacing:.4px; color:#98A2B3; margin-bottom:6px}
+  .wc-row .nm{flex:1; min-width:0; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .wc-row.done{background:#E7F8EF; color:#067647}
+
+  .wc-ta{width:100%; box-sizing:border-box; margin-top:10px; background:#F9FAFB; border:1.5px solid #D0D5DD;
+    border-radius:12px; color:#101828; font-family:var(--body); font-size:13px; padding:11px; min-height:110px; display:none}
+  .wc-card.open .wc-ta{display:block}
+
+  .wc-note{font-size:12px; color:#667085; line-height:1.5; margin-top:9px}
+  .wc-note.bad{color:#B42318} .wc-note.good{color:#067647}
+
+  /* everything the machine did, folded away behind one tap */
+  .wc-det{background:#fff; border-radius:14px; margin-top:11px; overflow:hidden; box-shadow:0 1px 3px rgba(16,24,40,.08)}
+  .wc-det summary{padding:13px 14px; font-weight:600; font-size:13px; cursor:pointer; list-style:none; color:#344054}
+  .wc-det summary::-webkit-details-marker{display:none}
+  .wc-det summary::after{content:"▾"; float:right; color:#98A2B3}
+  .wc-det[open] summary::after{content:"▴"}
+  .wc-det .in{padding:0 14px 14px; font-size:12.5px; line-height:1.55; color:#475467}
+  .wc-det .in pre{white-space:pre-wrap; word-break:break-word; font-family:var(--mono); font-size:11px;
+    background:#F6F8FC; border-radius:10px; padding:10px; margin:6px 0 0; max-height:260px; overflow:auto}
+
+  /* the answer. the only thing on screen that tells you to do something. */
+  .wc-dec{background:#fff; border-radius:18px; padding:18px 16px; box-shadow:0 6px 22px rgba(16,24,40,.13); text-align:center}
+  .wc-dec .tk{font-family:var(--mono); font-size:19px; font-weight:700; color:#101828; letter-spacing:.5px}
+  .wc-dec .verdict{font-family:var(--disp); font-size:44px; font-weight:700; line-height:1.05; margin-top:4px}
+  .wc-dec .verdict.go{color:#039855} .wc-dec .verdict.no{color:#B42318}
+  .wc-dec .verdict.pend{color:#98A2B3; font-size:19px; letter-spacing:.5px}
+  .wc-grid{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:15px; text-align:left}
+  .wc-grid .c{background:#F5F8FC; border-radius:12px; padding:10px 11px; min-width:0}
+  .wc-grid .c .k{font-family:var(--mono); font-size:8.5px; letter-spacing:.8px; color:#98A2B3}
+  .wc-grid .c .v{font-family:var(--mono); font-size:15px; font-weight:700; color:#101828; margin-top:3px;
+    overflow:hidden; text-overflow:ellipsis}
+  .wc-grid .c .v.na{font-size:10px; font-weight:500; color:#98A2B3; letter-spacing:.3px}
 
   /* chat with Claude */
   .chat-overlay{position:fixed; inset:0; z-index:80; background:var(--ink); display:none; flex-direction:column; padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
@@ -681,24 +754,35 @@
     <button class="x" id="wcClose" aria-label="Leave Wildcard">×</button>
   </div>
   <div class="wc-body">
-    <div class="wc-strip">BHD 50 POT · ONE TRADE/DAY MAX · LONG SHARES ONLY · NO AUTO-EXECUTION</div>
-    <div class="wc-warn">
-      <b>This is a different mission from your portfolio.</b> Separate capital, short horizon, its own rules.
-      Nothing here touches the Monthly Plan or the BHD500 → ISAC.L policy. The app never places an order —
-      it produces instructions you carry out yourself. <b>NONE is a normal and desirable result.</b>
+    <div class="wc-strip">BHD 50 POT · ONE TRADE/DAY · LONG ONLY · NO AUTO EXECUTION</div>
+
+    <!-- Step 0. Static markup, not generated, so it exists before any script runs. -->
+    <div id="wcSetup">
+      <div class="wc-lbl">TONIGHT'S THREE CANDIDATES</div>
+      <div class="wc-tickers">
+        <input id="wc_t1" maxlength="12" placeholder="TICKER 1" autocomplete="off" spellcheck="false">
+        <input id="wc_t2" maxlength="12" placeholder="TICKER 2" autocomplete="off" spellcheck="false">
+        <input id="wc_t3" maxlength="12" placeholder="TICKER 3" autocomplete="off" spellcheck="false">
+      </div>
+      <button class="wc-btn" id="wcDebate">DEBATE</button>
+      <div id="wcResume"></div>
     </div>
 
-    <div class="sub-h" style="margin-top:16px">Tonight's three candidates</div>
-    <div class="wc-tickers">
-      <input id="wc_t1" maxlength="12" placeholder="TICKER 1" autocomplete="off" spellcheck="false">
-      <input id="wc_t2" maxlength="12" placeholder="TICKER 2" autocomplete="off" spellcheck="false">
-      <input id="wc_t3" maxlength="12" placeholder="TICKER 3" autocomplete="off" spellcheck="false">
-    </div>
-    <button class="btn wc-go" id="wcDebate">▶ DEBATE</button>
-    <div class="wc-note" id="wcStatus">Enter three tickers and press Debate. The run is recorded from the moment it is created — including runs you abandon.</div>
+    <!-- Steps 1-4. Only the step you can act on is ever drawn here. -->
+    <div id="wcFlow" style="display:none"></div>
 
-    <div id="wcSeats" style="margin-top:16px"></div>
-    <div class="wc-note" style="margin-top:14px;border-top:1px solid rgba(255,196,0,.2);padding-top:10px"><b style="color:#f4e6c4">Where this stands</b><br><span id="wcMeans">No run yet.</span></div>
+    <div class="wc-note" id="wcStatus">Three tickers, then Debate. The run is recorded from the moment it is created — including runs you abandon.</div>
+
+    <details class="wc-det" id="wcRules">
+      <summary>RULES / WHY SEPARATE?</summary>
+      <div class="in">
+        <b>A different mission from your portfolio.</b> Separate capital, short horizon, its own rules.
+        Nothing here touches the Monthly Plan or the BHD500 → ISAC.L policy.<br><br>
+        The app never places an order — it produces instructions you carry out yourself in Trading 212.
+        <b>NONE is a normal and desirable result.</b> One trade per day maximum, long shares only,
+        BHD50 pot. Anything that needs real price history stays blank and says so rather than being guessed.
+      </div>
+    </details>
   </div>
 </div>
 
@@ -801,7 +885,7 @@ function defaults(){return{
  * EXPECTED_API = the backend build this frontend was written against.
  * The chip in the header shows "FE x · API y" and turns amber on mismatch, so a stale
  * GitHub Pages page or a stale Render backend is visible at a glance instead of silent. */
-const FE_VERSION="2.2.0", EXPECTED_API="2.2.0";
+const FE_VERSION="2.3.0", EXPECTED_API="2.3.0";
 let API_VERSION_SEEN=null;
 
 const POLICY=Object.freeze({monthlyPlanBhd:500, destination:"ISAC.L", status:"ON POLICY",
@@ -955,41 +1039,203 @@ function authBootCheck(){
  * Deliberately isolated. Renders only inside its own hidden section, writes nothing to
  * the portfolio state, and never touches render(). If every line of this failed, the
  * dashboard would be unaffected. */
-let WC_RUN = null, WC_SEATS = null;
+let WC_RUN = null, WC_SEATS = null, WC_RESP = [], WC_UI = {};
 
-function wcSetStatus(msg, tone){ const e=$("wcStatus"); if(!e)return; e.textContent=msg; e.style.color = tone==="bad"?"var(--risk)":tone==="good"?"var(--act)":"var(--muted-2)"; }
+/* The four owner-facing steps. A seat belongs to a step; a step is finished when every
+ * seat in it has an OK response stored. This is derived from the DATABASE, never from a
+ * counter held in the page — close the app mid-run and you resume exactly where you were. */
+const WC_FLOW = [
+  { key:"evidence", n:"1 EVIDENCE",  seats:["grok","gemini"] },
+  { key:"audit",    n:"2 AUDIT",     seats:["perplexity"] },
+  { key:"test",     n:"3 TRADE TEST",seats:["claude","deepseek"] },
+  { key:"decision", n:"4 DECISION",  seats:["synthesis"] }
+];
+const WC_SUB  = { grok:"LIVE", gemini:"RESEARCH", perplexity:"AUDIT EVIDENCE",
+                  claude:"BUILD THE TRADE", deepseek:"TRY TO KILL IT", synthesis:"DECIDE" };
+const WC_SHORT= { grok:"GROK", gemini:"GEMINI", perplexity:"PERPLEXITY",
+                  claude:"CLAUDE", deepseek:"DEEPSEEK", synthesis:"FINAL" };
 
-async function wcLoadSeats(){
-  const base = S.backendUrl ? S.backendUrl.replace(/\/+$/,"") : null;
-  if(!base){ wcSetStatus("Connect your backend in Settings first — Wildcard needs it to record runs.","bad"); return; }
-  try{ const j = await apiJson(base+"/api/wildcard/seats"); WC_SEATS = j.seats||null; wcRenderSeats(); }
-  catch(e){ wcSetStatus("Couldn't load the committee seats: "+((e&&e.body&&e.body.error)||(e&&e.message)||e),"bad"); }
+function wcSetStatus(msg, tone){
+  const e=$("wcStatus"); if(!e)return;
+  e.textContent=msg; e.className = "wc-note" + (tone==="bad"?" bad":tone==="good"?" good":"");
+}
+function wcBase(){ return S.backendUrl ? S.backendUrl.replace(/\/+$/,"") : null; }
+function wcLabel(seat){ return (WC_SEATS&&WC_SEATS[seat]&&WC_SEATS[seat].label) || (WC_SHORT[seat]||seat); }
+function wcDone(seat){ return WC_RESP.some(r=>r.seat===seat && r.status==="ok"); }
+
+/* The first step that is not finished. Never advances past DECISION. */
+function wcStepNow(){
+  for(let i=0;i<WC_FLOW.length;i++) if(!WC_FLOW[i].seats.every(wcDone)) return i;
+  return WC_FLOW.length-1;
+}
+/* Mode is what the SERVER says unless you deliberately switched this seat this run. */
+function wcMode(seat){
+  if(WC_UI[seat+":mode"]) return WC_UI[seat+":mode"];
+  const d=WC_SEATS&&WC_SEATS[seat];
+  return (d&&d.defaultMode)==="auto" ? "auto" : "manual";
+}
+function wcStat(seat){
+  if(wcDone(seat))              return {k:"ready", t:"READY"};
+  if(WC_UI[seat]==="running")   return {k:"run",   t:"RUNNING"};
+  if(WC_UI[seat]==="failed")    return {k:"fail",  t:"FAILED — USE MANUAL"};
+  return {k:"wait", t:"WAITING"};
 }
 
-function wcRenderSeats(){
-  const host=$("wcSeats"); if(!host)return;
-  if(!WC_SEATS){ host.innerHTML=""; return; }
-  host.innerHTML = Object.entries(WC_SEATS).map(([k,v])=>{
-    const mode = "MANUAL";   // ruling 4: every seat starts manual; AUTO is opt-in per run
-    const auto = v.autoAvailable ? '<span class="wc-mode auto">AUTO available</span>' : '';
-    return '<div class="wc-seat" id="wcSeat_'+esc(k)+'">'
-      +   '<div class="r"><span class="nm">'+esc(v.label)+'</span>'
-      +     '<span class="wc-mode manual">'+mode+'</span>'+auto+'</div>'
-      +   '<div class="wc-note">'+esc(v.note||"")+'</div>'
-      +   '<div class="r" style="margin-top:8px">'
-      +     '<button class="btn sm" data-wc-copy="'+esc(k)+'">COPY PROMPT</button>'
-      +     '<button class="btn sm" data-wc-paste="'+esc(k)+'">PASTE RESPONSE</button>'
-      +   '</div>'
-      +   '<textarea data-wc-box="'+esc(k)+'" placeholder="Paste the full reply from '+esc(v.label)+' here, then press SAVE."></textarea>'
-      +   '<div class="r" style="margin-top:6px;display:none" data-wc-save-row="'+esc(k)+'">'
-      +     '<button class="btn sm" data-wc-save="'+esc(k)+'">SAVE RESPONSE</button>'
-      +   '</div>'
-      + '</div>';
-  }).join("");
+async function wcLoadSeats(){
+  const base=wcBase();
+  if(!base){ wcSetStatus("Connect your backend in Settings first — Wildcard needs it to record runs.","bad"); return; }
+  try{ const j=await apiJson(base+"/api/wildcard/seats"); WC_SEATS=j.seats||null; }
+  catch(e){ wcSetStatus("Couldn't load the committee seats: "+wcErr(e),"bad"); }
+  wcRender(); wcOfferResume();
+}
+function wcErr(e){ return (e&&e.body&&e.body.error)||(e&&e.message)||String(e); }
+
+/* Re-read the run from the server so step position always reflects what is actually stored. */
+async function wcRefresh(){
+  const base=wcBase(); if(!base||!WC_RUN||!WC_RUN.id) return;
+  try{
+    const j=await apiJson(base+"/api/wildcard/run/"+encodeURIComponent(WC_RUN.id));
+    WC_RUN=j.run||WC_RUN; WC_RESP=j.seatResponses||[]; if(j.seats) WC_SEATS=j.seats;
+  }catch(e){ wcSetStatus("Couldn't re-read the run: "+wcErr(e),"bad"); }
+  wcRender();
+}
+
+/* A run you started earlier tonight is offered, never silently resumed. */
+async function wcOfferResume(){
+  const host=$("wcResume"); if(!host) return; host.innerHTML="";
+  const base=wcBase(); if(!base||WC_RUN) return;
+  try{
+    const j=await apiJson(base+"/api/wildcard/runs?limit=1");
+    const r=(j.runs||[])[0]; if(!r) return;
+    host.innerHTML='<button class="wc-btn sec" id="wcResumeBtn" style="margin-top:9px">RESUME · '
+      + esc((r.candidates||[]).join(" · ")) + '</button>';
+    const b=$("wcResumeBtn"); if(b) b.onclick=function(){ WC_RUN=r; wcRefresh(); };
+  }catch(e){ /* no store, or none yet — the setup screen is a complete answer on its own */ }
+}
+
+/* ── render ────────────────────────────────────────────────────────────────────
+ * ONE step is a card. Finished steps are a tick. Future steps are a grey line.
+ * The machinery (providers, models, raw text, fallbacks) is never on this surface —
+ * it is all still recorded, and it all lives behind VIEW DEBATE. */
+function wcRender(){
+  const setup=$("wcSetup"), flow=$("wcFlow"); if(!setup||!flow) return;
+  if(!WC_RUN){ setup.style.display=""; flow.style.display="none"; flow.innerHTML=""; return; }
+  setup.style.display="none"; flow.style.display="";
+
+  const cur=wcStepNow();
+  let h='<div class="wc-rail">'+WC_FLOW.map(function(s,i){
+    return '<div class="st '+(i<cur?"done":i===cur?"now":"")+'">'+esc(s.n)+'</div>'; }).join("")+'</div>';
+  h+='<div class="wc-tick">'+esc((WC_RUN.candidates||[]).join(" · "))+'</div>';
+
+  for(let i=0;i<cur;i++) h+='<div class="wc-row done"><span class="nm">'+esc(WC_FLOW[i].n)+'</span><span>DONE ✓</span></div>';
+
+  h += WC_FLOW[cur].key==="decision" ? wcDecisionHtml()
+                                     : WC_FLOW[cur].seats.map(wcCardHtml).join("");
+
+  for(let i=cur+1;i<WC_FLOW.length;i++){
+    const s=WC_FLOW[i];
+    const w = s.key==="audit" ? "waiting for evidence"
+            : s.key==="test"  ? "waiting for locked pack" : "waiting";
+    const nm= s.key==="test" ? "CLAUDE + DEEPSEEK" : s.seats.map(function(x){return WC_SHORT[x]||x;}).join(" + ");
+    h+='<div class="wc-row"><span class="nm">'+esc(nm)+'</span><span>'+esc(w)+'</span></div>';
+  }
+
+  h+=wcDebateHtml();
+  h+='<button class="wc-btn sec" id="wcNewRun" style="margin-top:11px">START A DIFFERENT RUN</button>';
+  flow.innerHTML=h;
+  const nb=$("wcNewRun"); if(nb) nb.onclick=function(){ WC_RUN=null; WC_RESP=[]; WC_UI={}; wcSetStatus("Three tickers, then Debate.",""); wcRender(); wcOfferResume(); };
+}
+
+function wcCardHtml(seat){
+  const st=wcStat(seat), mode=wcMode(seat), d=(WC_SEATS&&WC_SEATS[seat])||{};
+  const done = st.k==="ready";
+  let h='<div class="wc-card" id="wcSeat_'+esc(seat)+'">'
+    + '<div class="hd"><div class="nm">'+esc(WC_SHORT[seat]||seat)
+    +   '<div class="sb">'+esc(WC_SUB[seat]||"")+'</div></div>'
+    + '<span class="wc-badge '+st.k+'">'+esc(st.t)+'</span></div>';
+  if(!done){
+    h+='<div class="wc-btnrow">';
+    if(mode==="auto" && d.autoAvailable) h+='<button class="wc-btn" data-wc-auto="'+esc(seat)+'">RUN</button>';
+    h+='<button class="wc-btn'+(mode==="auto"&&d.autoAvailable?" sec":"")+'" data-wc-copy="'+esc(seat)+'">COPY PROMPT</button>'
+     + '<button class="wc-btn sec" data-wc-paste="'+esc(seat)+'">PASTE ANSWER</button></div>'
+     + '<textarea class="wc-ta" data-wc-box="'+esc(seat)+'" placeholder="Paste the whole reply here, then press SAVE."></textarea>'
+     + '<div class="wc-btnrow" style="display:none" data-wc-save-row="'+esc(seat)+'">'
+     +   '<button class="wc-btn" data-wc-save="'+esc(seat)+'">SAVE</button></div>';
+    if(seat==="grok") h+='<div class="wc-note">Grok is MANUAL by ruling — it has returned stale data before.</div>';
+    else if(!d.autoAvailable) h+='<div class="wc-note">No API key for this seat, so it is manual.</div>';
+  }
+  return h+'</div>';
+}
+
+/* Step 4. NOT another seat card unless AUTO genuinely fails — the normal experience is
+ * that a decision simply appears. Every field is read from the stored synthesis; anything
+ * absent reads UNAVAILABLE rather than being filled in with something plausible. */
+function wcPick(o,keys){
+  if(!o) return null;
+  for(let i=0;i<keys.length;i++){ const v=o[keys[i]]; if(v!=null && v!=="" ) return String(v); }
+  return null;
+}
+function wcCell(k,v){
+  return '<div class="c"><div class="k">'+esc(k)+'</div><div class="v'+(v?"":" na")+'">'
+    + esc(v||"UNAVAILABLE")+'</div></div>';
+}
+function wcDecisionHtml(){
+  const rows=WC_RESP.filter(function(r){return r.seat==="synthesis"&&r.status==="ok";});
+  const r=rows.length?rows[rows.length-1]:null;
+  const p=(r&&r.parsed)||null;
+  const st=wcStat("synthesis");
+
+  if(!r){
+    let h='<div class="wc-dec"><div class="verdict pend">AWAITING FINAL DECISION</div>'
+      + '<div class="wc-note" style="text-align:center">Nothing is decided until the synthesis has run. NONE stays a valid outcome.</div></div>';
+    h+='<div class="wc-card" id="wcSeat_synthesis"><div class="hd"><div class="nm">FINAL<div class="sb">DECIDE</div></div>'
+      + '<span class="wc-badge '+st.k+'">'+esc(st.t)+'</span></div><div class="wc-btnrow">'
+      + '<button class="wc-btn go" data-wc-auto="synthesis">GET THE DECISION</button></div>';
+    /* COPY/PASTE is exposed ONLY once AUTO has actually failed — otherwise step 4 becomes
+       a sixth thing to copy and paste, which is the whole complaint. */
+    if(WC_UI.synthesis==="failed"){
+      h+='<div class="wc-btnrow"><button class="wc-btn sec" data-wc-copy="synthesis">COPY SYNTHESIS PROMPT</button>'
+       + '<button class="wc-btn sec" data-wc-paste="synthesis">PASTE RESPONSE</button></div>'
+       + '<textarea class="wc-ta" data-wc-box="synthesis" placeholder="Paste the whole reply here, then press SAVE."></textarea>'
+       + '<div class="wc-btnrow" style="display:none" data-wc-save-row="synthesis">'
+       +   '<button class="wc-btn" data-wc-save="synthesis">SAVE</button></div>';
+    }
+    return h+'</div>';
+  }
+
+  const verdict=(wcPick(p,["verdict","decision","action","call"])||"").toUpperCase();
+  const isGo = /(^|\b)(GO|BUY|ENTER)\b/.test(verdict) && !/NO[ -]?GO/.test(verdict);
+  const isNo = /NO[ -]?GO|NONE|SKIP|PASS|NO TRADE/.test(verdict);
+  const cls  = isGo?"go":isNo?"no":"pend";
+  return '<div class="wc-dec">'
+    + '<div class="tk">'+esc(wcPick(p,["ticker","symbol","selected"])||(WC_RUN.candidates||[]).join(" · "))+'</div>'
+    + '<div class="verdict '+cls+'">'+esc(verdict||"NO VERDICT")+'</div>'
+    + '<div class="wc-grid">'
+    +   wcCell("GRADE",     wcPick(p,["grade","rating","score"]))
+    +   wcCell("LIMIT",     wcPick(p,["limit","entry","entry_price","limitPrice"]))
+    +   wcCell("POSITION",  wcPick(p,["position","size","shares","positionSize"]))
+    +   wcCell("STOP",      wcPick(p,["stop","stop_loss","stopLoss","invalidation"]))
+    +   wcCell("TARGET",    wcPick(p,["target","take_profit","takeProfit"]))
+    +   wcCell("NEXT CHECK",wcPick(p,["next_check","nextCheck","review","time_stop","timeStop"]))
+    + '</div>'
+    + (p?"":'<div class="wc-note">The synthesis reply was not machine-readable, so no fields could be filled. The full text is under VIEW DEBATE — nothing has been guessed.</div>')
+    + '</div>';
+}
+
+/* Everything the machine did — provider, source, and the raw text of every seat — kept
+ * complete in the database and folded behind one tap. */
+function wcDebateHtml(){
+  if(!WC_RESP.length) return "";
+  return '<details class="wc-det"><summary>VIEW DEBATE · '+WC_RESP.length+' recorded</summary><div class="in">'
+    + WC_RESP.map(function(r){
+        return '<b>'+esc(WC_SHORT[r.seat]||r.seat)+'</b> · '+esc(r.stage||"?")+' · '+esc(r.source||"?")
+          + (r.status==="ok"?"":' · <span style="color:#B42318">'+esc(r.status||"")+'</span>')
+          + '<pre>'+esc(String(r.raw_response||"").slice(0,4000))+'</pre>'; }).join("")
+    + '</div></details>';
 }
 
 async function wcCreateRun(){
-  const base = S.backendUrl ? S.backendUrl.replace(/\/+$/,"") : null;
+  const base=wcBase();
   if(!base){ wcSetStatus("Connect your backend in Settings first.","bad"); return; }
   const t=[ ($("wc_t1").value||"").trim().toUpperCase(),
             ($("wc_t2").value||"").trim().toUpperCase(),
@@ -998,57 +1244,83 @@ async function wcCreateRun(){
   const b=$("wcDebate"); b.disabled=true; const label=b.textContent; b.textContent="Creating…";
   try{
     const j = await apiJson(base+"/api/wildcard/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({candidates:t})});
-    WC_RUN=j.run||null; if(j.seats) WC_SEATS=j.seats;
-    wcRenderSeats();
-    wcSetStatus("Run created for "+t.join(" / ")+". Work through the seats below — copy each prompt, paste the reply back.","good");
-    $("wcMeans").textContent = "Run "+(WC_RUN&&WC_RUN.id?String(WC_RUN.id).slice(0,8):"?")+" · stage NIGHT · nothing decided yet. NONE remains a valid outcome.";
+    WC_RUN=j.run||null; WC_RESP=[]; WC_UI={}; if(j.seats) WC_SEATS=j.seats;
+    wcRender();
+    wcSetStatus("Step 1 of 4. Nothing is decided yet — NONE stays a valid outcome.","good");
   }catch(e){
-    wcSetStatus("Couldn't create the run: "+((e&&e.body&&e.body.error)||(e&&e.message)||e),"bad");
+    wcSetStatus("Couldn't create the run: "+wcErr(e),"bad");
   }finally{ b.disabled=false; b.textContent=label; }
 }
 
+/* AUTO. The endpoint that actually calls the provider is the NEXT build step, so this
+ * currently cannot succeed — and it says exactly that rather than reporting a failure it
+ * did not have. Either way the behaviour you asked for is the behaviour you get: AUTO is
+ * tried first, and the moment it does not work MANUAL appears in its place. */
+async function wcAuto(seat){
+  const base=wcBase(); if(!base) return;
+  if(!WC_RUN||!WC_RUN.id){ wcSetStatus("Create a run first.","bad"); return; }
+  WC_UI[seat]="running"; wcRender();
+  try{
+    await apiJson(base+"/api/wildcard/seat/run",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({runId:WC_RUN.id, seat})});
+    delete WC_UI[seat];
+    await wcRefresh();
+    wcSetStatus("Saved "+(WC_SHORT[seat]||seat)+"'s answer automatically.","good");
+  }catch(e){
+    WC_UI[seat]="failed"; WC_UI[seat+":mode"]="manual"; wcRender();
+    const notBuilt = e && (e.status===404 || e.status===405);
+    wcSetStatus(notBuilt
+      ? "Running the seats automatically is not wired up yet — that is the next build step. Use COPY PROMPT / PASTE ANSWER for now."
+      : (WC_SHORT[seat]||seat)+" failed automatically ("+wcErr(e)+"). Manual is now open below.","bad");
+  }
+}
+
 async function wcCopyPrompt(seat){
-  const base = S.backendUrl ? S.backendUrl.replace(/\/+$/,"") : null; if(!base) return;
+  const base=wcBase(); if(!base) return;
   const q = WC_RUN&&WC_RUN.id ? "?run="+encodeURIComponent(WC_RUN.id) : "";
   try{
     const j = await apiJson(base+"/api/wildcard/prompt/"+encodeURIComponent(seat)+q);
     await navigator.clipboard.writeText(j.prompt||"");
     toast(j.incomplete ? "Copied — but evidence is missing" : "Prompt copied");
-    if(j.incomplete) wcSetStatus("Copied "+seat+"'s prompt, but it is MISSING: "+(j.missing||[]).join(", ")+". Run those seats first, or record this as an incomplete audit.","bad");
-    else wcSetStatus("Copied "+seat+"'s prompt"+((j.evidenceUsed||[]).length?" including "+j.evidenceUsed.map(x=>x.seat).join(" + ")+"'s actual answers.":"."),"good");
+    if(j.incomplete) wcSetStatus("Copied, but this prompt is MISSING: "+(j.missing||[]).join(", ")+". Do those first.","bad");
+    else wcSetStatus("Copied"+((j.evidenceUsed||[]).length?" — it carries "+j.evidenceUsed.map(function(x){return WC_SHORT[x.seat]||x.seat;}).join(" + ")+"'s actual answers.":"."),"good");
   }catch(e){
     /* 409 = required prior evidence missing. Say so precisely rather than failing vaguely. */
     const body=e&&e.body;
-    if(body&&body.missing) wcSetStatus("Cannot build "+seat+"'s prompt yet — it must audit: "+body.missing.join(", ")+". Do those seats first.","bad");
-    else wcSetStatus("Couldn't build the prompt: "+((body&&body.error)||(e&&e.message)||e),"bad");
+    if(body&&body.missing) wcSetStatus("Cannot build this prompt yet — it must audit: "+body.missing.join(", ")+".","bad");
+    else wcSetStatus("Couldn't build the prompt: "+wcErr(e),"bad");
   }
 }
 
 async function wcSaveResponse(seat){
-  const base = S.backendUrl ? S.backendUrl.replace(/\/+$/,"") : null; if(!base) return;
+  const base=wcBase(); if(!base) return;
   if(!WC_RUN||!WC_RUN.id){ wcSetStatus("Create a run first.","bad"); return; }
   const box=document.querySelector('[data-wc-box="'+seat+'"]');
   const txt=box&&box.value?box.value.trim():"";
-  if(!txt){ wcSetStatus("Nothing pasted for "+seat+" yet.","bad"); return; }
+  if(!txt){ wcSetStatus("Nothing pasted yet.","bad"); return; }
+  /* Stage comes from the seat definition and is sent as-is. night / locked / live are
+     distinct and the server now stores exactly what it validated. */
   const stage = (WC_SEATS&&WC_SEATS[seat]&&WC_SEATS[seat].stage)||"night";
   try{
     await apiJson(base+"/api/wildcard/seat",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({runId:WC_RUN.id, seat, stage, source:"manual", rawResponse:txt})});
-    if(box) box.value="";
-    const card=$("wcSeat_"+seat); if(card) card.classList.remove("open");
-    const row=document.querySelector('[data-wc-save-row="'+seat+'"]'); if(row) row.style.display="none";
-    wcSetStatus("Saved "+seat+"'s response (manual, stage "+stage+").","good");
-  }catch(e){ wcSetStatus("Couldn't save: "+((e&&e.body&&e.body.error)||(e&&e.message)||e),"bad"); }
+    delete WC_UI[seat];
+    await wcRefresh();
+    wcSetStatus("Saved. "+(wcStepNow()===WC_FLOW.length-1 && wcDone("synthesis") ? "That is the run complete." : "Next step is open above."),"good");
+  }catch(e){ wcSetStatus("Couldn't save: "+wcErr(e),"bad"); }
 }
 
-/* One delegated listener rather than per-button wiring — the seat list is re-rendered,
-   and re-binding handlers to replaced nodes is exactly how the chat overlay broke once. */
+/* One delegated listener on a container that is NEVER replaced. The cards inside are
+   re-rendered constantly, and re-binding handlers to replaced nodes is exactly how the
+   chat overlay broke once. */
 (function(){
-  const host=$("wcSeats");
+  const host=$("wcFlow");
   if(host) host.addEventListener("click",function(ev){
     const t=ev.target.closest("button"); if(!t)return;
-    const c=t.getAttribute("data-wc-copy"), p=t.getAttribute("data-wc-paste"), sv=t.getAttribute("data-wc-save");
-    if(c) wcCopyPrompt(c);
+    const a=t.getAttribute("data-wc-auto"), c=t.getAttribute("data-wc-copy"),
+          p=t.getAttribute("data-wc-paste"), sv=t.getAttribute("data-wc-save");
+    if(a) wcAuto(a);
+    else if(c) wcCopyPrompt(c);
     else if(p){ const card=$("wcSeat_"+p); if(card)card.classList.add("open");
       const row=document.querySelector('[data-wc-save-row="'+p+'"]'); if(row)row.style.display="flex";
       const box=document.querySelector('[data-wc-box="'+p+'"]'); if(box)box.focus(); }
