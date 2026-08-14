@@ -27,7 +27,7 @@ const { resolve: resolveCommitteeAction } = require('./committee-resolver');
  * by hand whenever the backend is deployed. Surfaced via /api/health so the frontend
  * can compare it against its own constant and flag frontend/backend deployment drift.
  * The frontend expects API_VERSION to match its EXPECTED_API constant.               */
-const API_VERSION = '2.6.0';
+const API_VERSION = '2.7.0';
 
 const app = express();
 app.use(express.json({ limit: '128kb' }));
@@ -1482,7 +1482,24 @@ const WC_STAGES = ['night', 'locked', 'live'];
 /* Which prior evidence a seat must see before it can honestly do its job.
  * Perplexity audits Grok and Gemini — it cannot audit research it was never shown, and
  * asking it to recreate that research independently would defeat the point of auditing. */
-const WC_REQUIRES = { perplexity: ['grok', 'gemini'] };
+/* What each seat must SEE before it can honestly do its job, and at which stage that
+ * evidence lives.
+ *
+ * SYNTHESIS WAS MISSING ENTIRELY. The chair's brief says "Combine the evidence and the
+ * disagreements" — but with no entry here it received the locked pack and nothing else. It
+ * was asked to judge a disagreement between two analyses it had never been shown. The run
+ * displayed 4 TRADE — DONE while the chair had no trade-stage reasoning at all, so any
+ * verdict more precise than NONE would have been invented. */
+const WC_REQUIRES = {
+  perplexity: { stage: 'night',  seats: ['grok', 'gemini'],
+                heading: 'EVIDENCE TO AUDIT — these are the actual responses from the earlier seats.',
+                rubric:  'Audit THESE. Do not substitute your own research for them.' },
+  synthesis:  { stage: 'locked', seats: ['claude', 'deepseek'],
+                heading: 'DERIVED ANALYSIS — NOT ADDITIONAL FACTUAL EVIDENCE.',
+                rubric:  'These two reasoned ONLY from the locked pack above. Judge their conclusions '
+                       + 'and their disagreement. Do NOT treat their statements as new verified facts, '
+                       + 'and do NOT let them add anything to the evidence pack.' }
+};
 
 /* Pure function so it can be tested without a database or a running server. */
 function buildSeatPrompt(seatKey, def, run, priorResponses) {
@@ -1490,19 +1507,29 @@ function buildSeatPrompt(seatKey, def, run, priorResponses) {
   const used = [], missing = [];
   if (run && Array.isArray(run.candidates)) parts.push('', 'CANDIDATES: ' + run.candidates.join(', '));
 
-  const needs = WC_REQUIRES[seatKey] || [];
+  const req = WC_REQUIRES[seatKey] || null;
+  const needs = req ? req.seats : [];
+  /* Collected but NOT emitted yet. A locked-stage seat must show the frozen pack FIRST and
+   * derived analysis after it, so the reader can never mistake one for the other. */
+  const derived = [];
   if (needs.length) {
-    parts.push('', 'EVIDENCE TO AUDIT — these are the actual responses from the earlier seats.',
-                   'Audit THESE. Do not substitute your own research for them.');
     for (const n of needs) {
-      const r = (priorResponses || []).find(x => x.seat === n && x.stage === 'night' && x.status === 'ok' && x.raw_response);
+      /* pickLatestOk, not .find(). The old line took the FIRST matching row out of a query
+       * with no ORDER BY — so the moment REVIEW → REPLACE stored a corrected answer, the
+       * auditor could still be handed the SUPERSEDED one, and nothing on screen would say so.
+       * One rule now governs every "which response" decision in this file. */
+      const r = pickLatestOk(priorResponses, n, req.stage);
       if (r) {
-        used.push({ seat: n, source: r.source, chars: String(r.raw_response).length });
-        parts.push('', '--- ' + n.toUpperCase() + ' (' + r.source + ') ---', String(r.raw_response));
+        used.push({ seat: n, stage: req.stage, source: r.source, chars: String(r.raw_response).length });
+        derived.push('', '--- ' + n.toUpperCase() + ' (' + r.source + ') ---', String(r.raw_response));
       } else {
         missing.push(n);
       }
     }
+  }
+  // Night-stage seats carry their evidence inline; there is no pack to come first.
+  if (derived.length && def.stage !== 'locked') {
+    parts.push('', req.heading, req.rubric, ...derived);
   }
 
   /* Locked-stage seats see the frozen pack and nothing else.
@@ -1527,6 +1554,18 @@ function buildSeatPrompt(seatKey, def, run, priorResponses) {
       'LOCKED EVIDENCE PACK — this is your ONLY factual input. Do not add outside knowledge.',
       'PACK HASH: ' + run.evidence_pack_hash,
       canonicalJson(run.evidence_pack));
+
+    /* FAIL CLOSED. A chair asked to judge a disagreement it cannot see would produce a
+     * confident verdict from half the inputs — exactly the failure this whole module exists
+     * to prevent. Refuse, and name what is missing. */
+    if (needs.length && missing.length) {
+      return { prompt: null, evidenceUsed: used, missing,
+               tradeIncomplete: true,
+               error: 'trade-stage analysis incomplete — cannot synthesise a disagreement that was never supplied' };
+    }
+    if (derived.length) {
+      parts.push('', req.heading, req.rubric, ...derived);
+    }
   }
   return { prompt: parts.join('\n'), evidenceUsed: used, missing,
            packHash: (run && run.evidence_pack_hash) || null };
@@ -1567,9 +1606,10 @@ const WC_PACK_SEATS = ['grok', 'gemini', 'perplexity'];
  * Ordering is now decided HERE, from values this function can see, and does not depend on
  * the caller's query at all. `id` is the tie-break so two rows sharing a timestamp still
  * resolve the same way every time rather than by arrival order. */
-function pickLatestOk(responses, seat) {
+function pickLatestOk(responses, seat, stage) {
+  const want = stage || 'night';
   const rows = (responses || []).filter(x =>
-    x.seat === seat && x.stage === 'night' && x.status === 'ok' && x.raw_response);
+    x.seat === seat && x.stage === want && x.status === 'ok' && x.raw_response);
   if (!rows.length) return null;
   return rows.slice().sort((a, b) => {
     const ta = Date.parse(a.created_at || '') || 0, tb = Date.parse(b.created_at || '') || 0;
@@ -1653,14 +1693,15 @@ app.get('/api/wildcard/prompt/:seat', async (req, res) => {
      * the same reason it is refused with a run. The previous version returned HTTP 200 with
      * a null prompt and a note saying "Generic role prompt" — which was no longer true and
      * would have read as a working endpoint returning nothing. */
-    if (built.needsLock) {
-      return res.status(409).json({ seat, stage: def.stage, needsLock: true,
-        error: 'evidence pack not locked',
-        note: 'This seat reasons from the frozen pack alone. Supply a run whose evidence is locked.' });
+    if (built.needsLock || built.tradeIncomplete) {
+      return res.status(409).json({ seat, stage: def.stage,
+        needsLock: !!built.needsLock, tradeIncomplete: !!built.tradeIncomplete,
+        error: built.needsLock ? 'evidence pack not locked' : 'trade analysis incomplete',
+        note: 'This seat reasons from stored run material. Supply a run that has it.' });
     }
     return res.json({ seat, label: def.label, stage: def.stage, prompt: built.prompt,
-      evidenceUsed: [], incomplete: (WC_REQUIRES[seat] || []).length > 0,
-      missing: WC_REQUIRES[seat] || [],
+      evidenceUsed: [], incomplete: ((WC_REQUIRES[seat] || {}).seats || []).length > 0,
+      missing: (WC_REQUIRES[seat] || {}).seats || [],
       note: 'Generic role prompt — no run supplied, so no prior evidence is attached.', ts: Date.now() });
   }
   if (!/^[0-9a-f-]{36}$/i.test(runId)) return res.status(400).json({ error: 'bad run id' });
@@ -1669,7 +1710,9 @@ app.get('/api/wildcard/prompt/:seat', async (req, res) => {
   try {
     [run] = await sbWc('GET', `wildcard_runs?id=eq.${runId}&select=candidates,evidence_pack,evidence_pack_hash`);
     if (!run) return res.status(404).json({ error: 'run not found' });
-    prior = await sbWc('GET', `wildcard_seat_responses?run_id=eq.${runId}&select=seat,stage,source,status,raw_response`) || [];
+    // id + created_at are what pickLatestOk orders by. Without them every row scores 0 and
+    // selection collapses to the tie-break — the same gap that was found in the lock query.
+    prior = await sbWc('GET', `wildcard_seat_responses?run_id=eq.${runId}&select=id,created_at,seat,stage,source,status,raw_response&order=created_at.asc`) || [];
   } catch (e) {
     // A store failure must NOT fall back to a bare prompt. Handing Perplexity a prompt with
     // no evidence, while it believes it has some, is worse than refusing.
@@ -1680,6 +1723,18 @@ app.get('/api/wildcard/prompt/:seat', async (req, res) => {
 
   const built = buildSeatPrompt(seat, def, run, prior);
   const { prompt, evidenceUsed, missing } = built;
+
+  /* Like the lock, allowIncomplete does NOT override this. "Proceed without the evidence" is
+   * a coherent choice for an audit; it is not coherent for a chair whose entire job is to
+   * judge a disagreement between two analyses it was never shown. */
+  if (built.tradeIncomplete) {
+    return res.status(409).json({
+      error: 'trade analysis incomplete', seat, tradeIncomplete: true, missing: built.missing,
+      note: 'FINAL BLOCKED — TRADE ANALYSIS INCOMPLETE. Missing: ' + built.missing.join(', ')
+          + '. The chair judges Claude\'s and DeepSeek\'s conclusions; without them it would be '
+          + 'inventing the reasoning it is supposed to be weighing.'
+    });
+  }
 
   /* A locked-stage seat with no frozen pack is refused outright, and allowIncomplete does
    * NOT override it. "Proceed without the evidence" is a coherent choice for an audit; it is
