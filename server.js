@@ -27,7 +27,7 @@ const { resolve: resolveCommitteeAction } = require('./committee-resolver');
  * by hand whenever the backend is deployed. Surfaced via /api/health so the frontend
  * can compare it against its own constant and flag frontend/backend deployment drift.
  * The frontend expects API_VERSION to match its EXPECTED_API constant.               */
-const API_VERSION = '2.1.0';
+const API_VERSION = '2.2.0';
 
 const app = express();
 app.use(express.json({ limit: '128kb' }));
@@ -483,142 +483,12 @@ app.get('/api/price-history', async (req, res) => {
 });
 
 
-/* ═══════════ TEMPORARY DIAGNOSTIC — STOOQ PROVIDER PROBE ══════════════════════
- * REMOVE THIS BLOCK once the provider decision is made. It exists to answer questions
- * that cannot be answered from documentation, and for no other purpose.
- *
- * SCOPE, deliberately narrow:
- *   - Stooq ONLY. No Yahoo call is made anywhere in this file. That is an owner ruling:
- *     probing Yahoo would itself be the automated access its terms prohibit, and the test
- *     is only worth running if the result would be acted on.
- *   - READ ONLY. Nothing is written to Supabase, no schema is touched, nothing feeds the
- *     dashboard, the committee, or any pricing path. It is inert with respect to production.
- *   - Authenticated (it is not in PUBLIC_PATHS, so the allowlist protects it by default).
- *
- * REPORTING RULE: statuses are reported literally. A 403 is a 403, a 429 is a 429, an
- * API-key interstitial is named as such. Nothing is ever substituted with zero, "temporary
- * outage", or an empty result that could be mistaken for "no data exists".                */
+/* Stooq provider probe REMOVED 14 Aug 2026 (ruling 9). It answered its question:
+ * every request returned an identical 796-byte JavaScript browser-verification page with
+ * HTTP 200 — Stooq is unreachable from a server, and a naive r.ok check would have ingested
+ * that HTML as price data. Dead experimental price infrastructure is not left running.
+ * Finding recorded in claude/price-provider-inspection-2026-08-08.md.                    */
 
-const STOOQ_KEY = process.env.STOOQ_API_KEY || '';
-
-/* Candidate symbol mappings. Stooq's formats for LSE and HKEX are UNVERIFIED — the
- * documentation is not publicly readable — so each instrument gets more than one candidate
- * and the probe reports which, if any, actually returns data. Guessing one and reporting
- * "not found" would tell us nothing about whether the instrument or the guess was wrong. */
-const STOOQ_CANDIDATES = [
-  { instrument: 'ISAC  (iShares MSCI ACWI UCITS, LSE, USD line)', tries: ['isac.uk', 'isac.l'] },
-  { instrument: 'XIAOMI 1810 (HKEX)',                             tries: ['1810.hk', '1810.hk.us'] },
-  { instrument: 'VOO   (Vanguard S&P 500, US)',                   tries: ['voo.us', 'voo'] },
-  { instrument: 'MSFT  (Microsoft, US)',                          tries: ['msft.us', 'msft'] },
-  { instrument: 'SERV  (Serve Robotics, US)',                     tries: ['serv.us', 'serv'] }
-];
-
-const sleepMs = (ms) => new Promise(r => setTimeout(r, ms));
-
-/* Classify what actually came back. This is the heart of the probe: an HTML page saying
- * "get your apikey" is a completely different finding from an empty CSV, and conflating
- * them is how you conclude "no coverage" when the real answer is "no permission". */
-function classifyStooqBody(status, ctype, body) {
-  const b = String(body || '');
-  const head = b.slice(0, 400);
-  if (status === 403) return { looksLike: 'http-403-forbidden', detail: head };
-  if (status === 429) return { looksLike: 'http-429-rate-limited', detail: head };
-  if (status >= 500)  return { looksLike: 'http-5xx-server-error', detail: head };
-  if (/get_apikey|get your apikey|apikey/i.test(head) && /<html|<!doctype/i.test(head))
-    return { looksLike: 'API-KEY-REQUIRED (HTML interstitial, not data)', detail: head };
-  if (/<html|<!doctype/i.test(head))
-    return { looksLike: 'HTML page returned instead of CSV', detail: head };
-  if (/^date,/i.test(b.trim()))
-    return { looksLike: 'csv-with-expected-header', detail: null };
-  if (/no data|n\/a/i.test(head) || !b.trim())
-    return { looksLike: 'empty-or-no-data', detail: head };
-  return { looksLike: 'unrecognised', detail: head };
-}
-
-function parseStooqCsv(body) {
-  const lines = String(body || '').trim().split(/\r?\n/).filter(Boolean);
-  if (lines.length < 2) return null;
-  const header = lines[0].split(',').map(x => x.trim());
-  const rows = lines.slice(1).map(l => l.split(','));
-  const dates = rows.map(r => r[0]).filter(Boolean);
-  return {
-    header,
-    rowCount: rows.length,
-    firstRowDate: dates[0] || null,
-    lastRowDate: dates[dates.length - 1] || null,
-    sampleFirstRow: rows[0] || null,
-    sampleLastRow: rows[rows.length - 1] || null,
-    // Stooq has been reported to return DESCENDING dates while most sources ascend.
-    // Getting this backwards silently inverts every "next close" the Wildcard would compute.
-    dateOrder: dates.length > 1 ? (dates[0] < dates[dates.length - 1] ? 'ascending' : 'descending') : 'unknown'
-  };
-}
-
-async function probeStooqOnce(symbol, interval) {
-  const qs = new URLSearchParams({ s: symbol, i: interval });
-  if (STOOQ_KEY) qs.set('apikey', STOOQ_KEY);
-  const url = 'https://stooq.com/q/d/l/?' + qs.toString();
-  const started = Date.now();
-  try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 12000);
-    let r, body = '';
-    try {
-      r = await fetch(url, { signal: ctrl.signal, headers: { 'Accept': 'text/csv,*/*' } });
-      body = await r.text();
-    } finally { clearTimeout(timer); }
-    const cls = classifyStooqBody(r.status, r.headers.get('content-type'), body);
-    const csv = cls.looksLike === 'csv-with-expected-header' ? parseStooqCsv(body) : null;
-    return {
-      symbol, interval, ok: r.ok, httpStatus: r.status,
-      contentType: r.headers.get('content-type') || null,
-      bytes: body.length, ms: Date.now() - started,
-      looksLike: cls.looksLike,
-      bodyHead: cls.detail ? cls.detail.slice(0, 300) : null,   // literal, never sanitised away
-      csv
-    };
-  } catch (e) {
-    // A network/timeout failure is reported as exactly that. It is NOT "no data".
-    return { symbol, interval, ok: false, httpStatus: null, ms: Date.now() - started,
-      looksLike: 'request-failed-before-a-response', error: String((e && e.message) || e).slice(0, 200), csv: null };
-  }
-}
-
-app.get('/api/probe/stooq', async (req, res) => {
-  const results = [];
-  /* Sequential with a deliberate gap. This is a diagnostic against someone else's free
-   * service; hammering it in parallel would be both rude and a good way to earn the 429
-   * we are trying to measure. */
-  for (const inst of STOOQ_CANDIDATES) {
-    for (const sym of inst.tries) {
-      for (const interval of ['d', '60']) {       // 'd' = daily, '60' = 60-minute (availability UNVERIFIED)
-        const r = await probeStooqOnce(sym, interval);
-        results.push({ instrument: inst.instrument, ...r });
-        await sleepMs(400);
-      }
-    }
-  }
-
-  /* Stability: does behaviour hold across several low-rate calls, or does it degrade?
-   * A first call succeeding proves very little on a service with an undocumented quota. */
-  const stability = [];
-  for (let i = 1; i <= 5; i++) {
-    const r = await probeStooqOnce('msft.us', 'd');
-    stability.push({ attempt: i, httpStatus: r.httpStatus, looksLike: r.looksLike, ms: r.ms });
-    await sleepMs(700);
-  }
-
-  res.json({
-    probe: 'stooq', ranAt: new Date().toISOString(),
-    apiKeyConfigured: !!STOOQ_KEY,
-    apiKeyNote: STOOQ_KEY ? 'STOOQ_API_KEY is set on the server.'
-      : 'NO STOOQ_API_KEY set. Since ~April 2026 Stooq is reported to require one; expect the API-key interstitial rather than CSV.',
-    intervalsTried: { d: 'daily', '60': '60-minute (availability unverified)' },
-    caveat: 'Diagnostic only. Nothing here is stored, and nothing feeds any pricing, dashboard or committee path. Statuses are reported literally.',
-    results, stability, ts: Date.now()
-  });
-});
-/* ═══════════ END TEMPORARY DIAGNOSTIC ═════════════════════════════════════════ */
 
 /* ───────── /api/market ───────── */
 app.get('/api/market', async (req, res) => {
@@ -1517,6 +1387,172 @@ app.get('/api/prompts', (req, res) => {
  * loadPrompt() precedence is DELIBERATELY UNCHANGED: a file in prompts/ still wins over the
  * built-in DEFAULTS. The override mechanism is legitimate; only the remote write is gone.
  * Prompts are now changed by committing a file to the backend repo. */
+
+/* ═══════════════ WILDCARD V2 ═══════════════════════════════════════════════════
+ * A CONTAINED experimental module. Governance amendment dated 14 Aug 2026.
+ *
+ * SEPARATE FROM THE PORTFOLIO IN EVERY RESPECT. Different capital (BHD50 experimental
+ * pot), different horizon (intraday), different rules. It must never appear on the main
+ * decision surface and must never influence the Monthly Plan. The architecture rule that
+ * two panels must not independently tell the owner what to do is preserved by keeping
+ * Wildcard behind its own nav entry, silent unless opened.
+ *
+ * NO BROKER API. NO AUTOMATIC EXECUTION. The module emits instructions; the owner
+ * executes them by hand in Trading 212 Invest.
+ *
+ * RULING 4 — NO SEAT IS EVER A HARD DEPENDENCY. Every seat stores an explicit
+ * source of 'api' or 'manual'. A provider failure must never block a run: the owner
+ * copies the prompt, pastes the answer back, and the run continues identically.
+ *
+ * RULING 3 — NEVER FAKE MEASUREMENT. Anything requiring real price history stays null
+ * and is reported as UNAVAILABLE. It is never inferred from an AI response.           */
+
+const WC_SEATS = {
+  grok:       { label: 'Grok — Live Intelligence',  provider: 'xai',        stage: 'night',
+                brief: 'Current market and news, catalyst freshness, social/trader attention, sector momentum, breaking developments. NO technical trade construction.' },
+  gemini:     { label: 'Gemini — Research',         provider: 'gemini',     stage: 'night',
+                brief: 'Company facts, earnings and guidance, filings, dilution, lockups, controversies, macro. Prefer primary sources.' },
+  perplexity: { label: 'Perplexity — Evidence Auditor', provider: 'perplexity', stage: 'night',
+                brief: 'Verify important claims, identify contradictions, detect stale data and old news presented as new, flag weak sourcing. NO trade recommendation.' },
+  claude:     { label: 'Claude — Trade Structure',  provider: 'anthropic',  stage: 'locked',
+                brief: 'Using ONLY the locked evidence pack: technical structure, entry, invalidation, realistic upside, downside, reward:risk, time stop, maximum hold, grade.' },
+  deepseek:   { label: 'DeepSeek — Red Team',       provider: 'openrouter', model: 'deepseek/deepseek-chat-v3.1:free', stage: 'locked',
+                brief: 'Using ONLY the locked evidence pack: try to kill this trade. Chasing? Stale catalyst? Stop inside normal noise? Reward/risk overstated? Macro conflict? Dilution/supply risk? Bull trap? State veto conditions.' },
+  synthesis:  { label: 'Final Synthesis',           provider: 'gemini',     stage: 'locked',
+                brief: 'Combine the evidence and the disagreements. Do NOT average votes. Decide.' }
+};
+
+/* Ruling 4: Grok starts MANUAL regardless of whether a key exists. It has produced stale and
+ * confidently wrong market data, so AUTO must be earned, not assumed. Every other seat offers
+ * AUTO only when its provider actually has a key — and MANUAL is always available. */
+function wcSeatModes() {
+  const out = {};
+  for (const [k, v] of Object.entries(WC_SEATS)) {
+    const hasKey = providerHasKey(v.provider);
+    out[k] = {
+      label: v.label, stage: v.stage, provider: v.provider,
+      autoAvailable: k === 'grok' ? false : hasKey,
+      defaultMode: 'manual',
+      note: k === 'grok'
+        ? 'MANUAL by ruling — Grok has returned stale/incorrect data before; AUTO must be earned.'
+        : (hasKey ? 'AUTO available; MANUAL always available.' : 'No API key — MANUAL only.')
+    };
+  }
+  return out;
+}
+
+async function sbWc(method, path, body) {
+  if (!sbOn()) throw new Error('no durable store configured');
+  const r = await fetch(`${SB_URL}/rest/v1/${path}`, {
+    method,
+    headers: { ...sbHeaders(method !== 'GET'), Prefer: 'return=representation' },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  if (!r.ok) throw new Error('supabase ' + r.status + ' ' + (await r.text()).slice(0, 200));
+  const txt = await r.text();
+  return txt ? JSON.parse(txt) : null;
+}
+
+const WC_TICKER = /^[A-Z0-9.\-]{1,12}$/;
+
+// Create a run. The record exists from the FIRST action, before any seat is called —
+// the whole point of moving logging ahead of the debate engine. A run that is abandoned
+// half way is still a run, and still evidence about the process.
+app.post('/api/wildcard/run', async (req, res) => {
+  const raw = (req.body && req.body.candidates) || [];
+  const candidates = (Array.isArray(raw) ? raw : String(raw).split(','))
+    .map(x => String(x).trim().toUpperCase()).filter(Boolean);
+  if (candidates.length !== 3) return res.status(400).json({ error: 'exactly three candidates required' });
+  const bad = candidates.filter(c => !WC_TICKER.test(c));
+  if (bad.length) return res.status(400).json({ error: 'invalid ticker(s)', invalid: bad });
+  if (new Set(candidates).size !== 3) return res.status(400).json({ error: 'candidates must be distinct' });
+  try {
+    const rows = await sbWc('POST', 'wildcard_runs', [{
+      candidates, candidate_source: (req.body && req.body.source) || null
+    }]);
+    res.json({ run: Array.isArray(rows) ? rows[0] : rows, seats: wcSeatModes(), ts: Date.now() });
+  } catch (e) { logUpstream('wildcard:create', e); res.status(502).json({ error: shortReason(String((e && e.message) || e)) }); }
+});
+
+/* Seat modes, independent of any run. The UI must be able to show "GROK — MANUAL" on an
+ * empty screen, before anything exists — and this needs no durable store, so it still
+ * answers when Supabase is down. */
+app.get('/api/wildcard/seats', (req, res) => res.json({ seats: wcSeatModes(), ts: Date.now() }));
+
+app.get('/api/wildcard/runs', async (req, res) => {
+  const limit = Math.min(200, Math.max(1, +req.query.limit || 30));
+  try {
+    res.json({ runs: await sbWc('GET', `wildcard_runs?select=*&order=trade_date.desc,created_at.desc&limit=${limit}`), ts: Date.now() });
+  } catch (e) { logUpstream('wildcard:list', e); res.status(502).json({ error: shortReason(String((e && e.message) || e)) }); }
+});
+
+app.get('/api/wildcard/run/:id', async (req, res) => {
+  const id = String(req.params.id || '');
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'bad run id' });
+  try {
+    const [run] = await sbWc('GET', `wildcard_runs?id=eq.${id}&select=*`);
+    if (!run) return res.status(404).json({ error: 'run not found' });
+    const seatRows = await sbWc('GET', `wildcard_seat_responses?run_id=eq.${id}&select=*&order=created_at.asc`);
+    const [trade] = await sbWc('GET', `wildcard_trades?run_id=eq.${id}&select=*`) || [];
+    res.json({ run, seatResponses: seatRows || [], trade: trade || null, seats: wcSeatModes(), ts: Date.now() });
+  } catch (e) { logUpstream('wildcard:get', e); res.status(502).json({ error: shortReason(String((e && e.message) || e)) }); }
+});
+
+/* The exact prompt a seat is given. In MANUAL mode this is what COPY PROMPT copies, so the
+ * pasted-back answer is genuinely comparable to an API one — same words, same evidence. */
+app.get('/api/wildcard/prompt/:seat', async (req, res) => {
+  const seat = String(req.params.seat || '').toLowerCase();
+  const def = WC_SEATS[seat];
+  if (!def) return res.status(400).json({ error: 'unknown seat', known: Object.keys(WC_SEATS) });
+  const runId = String(req.query.run || '');
+  let context = '';
+  if (/^[0-9a-f-]{36}$/i.test(runId)) {
+    try {
+      const [run] = await sbWc('GET', `wildcard_runs?id=eq.${runId}&select=candidates,evidence_pack`);
+      if (run) {
+        context = '\n\nCANDIDATES: ' + (run.candidates || []).join(', ');
+        // Locked-stage seats see the frozen pack and nothing else.
+        if (def.stage === 'locked' && run.evidence_pack) {
+          context += '\n\nLOCKED EVIDENCE PACK (this is your ONLY factual input):\n' + JSON.stringify(run.evidence_pack, null, 1);
+        }
+      }
+    } catch (e) { logUpstream('wildcard:prompt', e); }
+  }
+  res.json({
+    seat, label: def.label, stage: def.stage,
+    prompt: def.label + '\n\n' + def.brief + context,
+    note: 'Paste the full reply back via POST /api/wildcard/seat with source:"manual".',
+    ts: Date.now()
+  });
+});
+
+// Store a seat response — API or MANUAL, identical treatment downstream.
+app.post('/api/wildcard/seat', async (req, res) => {
+  const b = req.body || {};
+  const seat = String(b.seat || '').toLowerCase();
+  if (!WC_SEATS[seat]) return res.status(400).json({ error: 'unknown seat', known: Object.keys(WC_SEATS) });
+  if (!/^[0-9a-f-]{36}$/i.test(String(b.runId || ''))) return res.status(400).json({ error: 'bad run id' });
+  // Ruling 4: source is mandatory and explicit. Never defaulted, never guessed.
+  if (b.source !== 'api' && b.source !== 'manual') return res.status(400).json({ error: 'source must be "api" or "manual"' });
+  if (typeof b.rawResponse !== 'string' || !b.rawResponse.trim()) return res.status(400).json({ error: 'rawResponse required' });
+  try {
+    const rows = await sbWc('POST', 'wildcard_seat_responses', [{
+      run_id: b.runId, stage: b.stage === 'live' ? 'live' : 'night', seat,
+      provider: b.provider || WC_SEATS[seat].provider,
+      model: b.model || WC_SEATS[seat].model || null,
+      source: b.source,
+      raw_response: String(b.rawResponse).slice(0, 200000),
+      parsed: parseJsonLoose(b.rawResponse),      // best-effort; raw text is always kept regardless
+      status: b.status === 'failed' ? 'failed' : 'ok',
+      fail_reason: b.failReason || null,
+      fallback_used: !!b.fallbackUsed,
+      prompt_sent: b.promptSent || null
+    }]);
+    res.json({ saved: Array.isArray(rows) ? rows[0] : rows, ts: Date.now() });
+  } catch (e) { logUpstream('wildcard:seat', e); res.status(502).json({ error: shortReason(String((e && e.message) || e)) }); }
+});
+/* ═══════════════ END WILDCARD V2 ══════════════════════════════════════════════ */
+
 /* ───────── Our own portfolio history DB (independent of eToro) ─────────
  * Durable store for snapshots + decision journal. The frontend is local-first
  * (localStorage) and mirrors here so history survives device changes.
