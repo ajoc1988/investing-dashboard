@@ -27,7 +27,7 @@ const { resolve: resolveCommitteeAction } = require('./committee-resolver');
  * by hand whenever the backend is deployed. Surfaced via /api/health so the frontend
  * can compare it against its own constant and flag frontend/backend deployment drift.
  * The frontend expects API_VERSION to match its EXPECTED_API constant.               */
-const API_VERSION = '2.7.0';
+const API_VERSION = '2.7.1';
 
 const app = express();
 app.use(express.json({ limit: '128kb' }));
@@ -1606,15 +1606,52 @@ const WC_PACK_SEATS = ['grok', 'gemini', 'perplexity'];
  * Ordering is now decided HERE, from values this function can see, and does not depend on
  * the caller's query at all. `id` is the tie-break so two rows sharing a timestamp still
  * resolve the same way every time rather than by arrival order. */
+/* Ordering a Postgres timestamptz correctly is not as simple as it looks, and BOTH obvious
+ * approaches are wrong. Verified against this project's live database, not assumed:
+ *
+ *   1. Date.parse() ALONE LOSES PRECISION. PostgREST returns MICROSECONDS —
+ *      "2026-08-14T16:48:48.992392+00:00" — and JavaScript Date keeps only milliseconds.
+ *      Two responses saved inside the same millisecond therefore tie, and the id tie-break
+ *      picks between them arbitrarily. A replacement stored moments after the original could
+ *      lose, and the superseded answer would be frozen with nothing on screen saying so.
+ *
+ *   2. COMPARING THE STRINGS IS ALSO WRONG, for two separate reasons:
+ *      a) PostgreSQL TRIMS TRAILING ZEROS. ".100000" renders as ".1", and a zero fraction
+ *         disappears entirely — "12:00:00+00:00". The strings are variable length.
+ *      b) localeCompare() does NOT compare code points. It treats
+ *         "12:00:00+00:00" as sorting AFTER "12:00:00.000001+00:00" — putting the EARLIER
+ *         instant last — because locale collation skips the punctuation and compares the
+ *         digits that follow. Measured, not theorised.
+ *      And any string compare assumes every row renders with the same UTC offset, which is a
+ *      server setting rather than a guarantee.
+ *
+ * So: epoch milliseconds first (correct across any offset), then the microsecond remainder
+ * (recovers the precision Date lost), then the id. Nothing here depends on string collation
+ * or on trailing-zero behaviour. */
+function tsRank(v) {
+  const str = String(v || '');
+  const ms = Date.parse(str);
+  const frac = str.match(/\.(\d+)/);                       // fractional seconds, if present
+  return {
+    ms: Number.isFinite(ms) ? ms : null,
+    us: frac ? +((frac[1] + '000000').slice(0, 6)) : 0,    // microseconds within the second
+    str
+  };
+}
+
 function pickLatestOk(responses, seat, stage) {
   const want = stage || 'night';
   const rows = (responses || []).filter(x =>
     x.seat === seat && x.stage === want && x.status === 'ok' && x.raw_response);
   if (!rows.length) return null;
   return rows.slice().sort((a, b) => {
-    const ta = Date.parse(a.created_at || '') || 0, tb = Date.parse(b.created_at || '') || 0;
-    if (ta !== tb) return tb - ta;                       // newest first
-    return String(b.id || '').localeCompare(String(a.id || ''));   // deterministic tie-break
+    const ra = tsRank(a.created_at), rb = tsRank(b.created_at);
+    if (ra.ms !== null && rb.ms !== null && ra.ms !== rb.ms) return rb.ms - ra.ms;  // newest first
+    if (ra.us !== rb.us) return rb.us - ra.us;             // sub-millisecond resolution
+    // Unparseable on both sides: code-point order, NOT localeCompare.
+    if (ra.str !== rb.str) return ra.str < rb.str ? 1 : -1;
+    const ia = String(a.id || ''), ib = String(b.id || '');
+    return ia === ib ? 0 : (ia < ib ? 1 : -1);             // deterministic final tie-break
   })[0];
 }
 
