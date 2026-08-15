@@ -1002,7 +1002,7 @@ function defaults(){return{
  * EXPECTED_API = the backend build this frontend was written against.
  * The chip in the header shows "FE x · API y" and turns amber on mismatch, so a stale
  * GitHub Pages page or a stale Render backend is visible at a glance instead of silent. */
-const FE_VERSION="2.7.1", EXPECTED_API="2.7.1";
+const FE_VERSION="2.7.2", EXPECTED_API="2.7.2";
 let API_VERSION_SEEN=null;
 
 const POLICY=Object.freeze({monthlyPlanBhd:500, destination:"ISAC.L", status:"ON POLICY",
@@ -1172,6 +1172,12 @@ const WC_FLOW = [
   { key:"decision", n:"5 DECISION", seats:["synthesis"] }
 ];
 const WC_PACK_SEATS = ["grok","gemini","perplexity"];
+/* Which seats must prove what they examined is decided by the SERVER and published in
+   the seat metadata. A hardcoded ["perplexity"] here would drift the moment another
+   auditing seat was added, and the drift would be silent. */
+function wcNeedsPromptLineage(seat){
+  return !!(WC_SEATS && WC_SEATS[seat] && WC_SEATS[seat].promptLineageRequired);
+}
 const WC_SUB  = { grok:"LIVE", gemini:"RESEARCH", perplexity:"AUDIT EVIDENCE",
                   claude:"BUILD THE TRADE", deepseek:"TRY TO KILL IT", synthesis:"DECIDE" };
 const WC_SHORT= { grok:"GROK", gemini:"GEMINI", perplexity:"PERPLEXITY",
@@ -1524,7 +1530,8 @@ async function wcLock(){
   }catch(e){
     delete WC_UI.__lock; wcRender();
     const b=e&&e.body;
-    if(b&&b.missing) wcSetStatus("Cannot lock yet — no answer stored for: "+b.missing.join(", ")+".","bad");
+    if(b&&b.auditStale) wcSetStatus("Cannot lock — "+(b.note||"the audit does not match the evidence being frozen")+"","bad");
+    else if(b&&b.missing) wcSetStatus("Cannot lock yet — no answer stored for: "+b.missing.join(", ")+".","bad");
     else wcSetStatus("Couldn't lock the evidence: "+wcErr(e),"bad");
   }
 }
@@ -1532,13 +1539,22 @@ async function wcLock(){
 async function wcCopyPrompt(seat){
   const base=wcBase(); if(!base) return;
   const q = WC_RUN&&WC_RUN.id ? "?run="+encodeURIComponent(WC_RUN.id) : "";
+  /* Drop any previously retained prompt BEFORE fetching. If this attempt fails at any point,
+     the app must not still be holding an older prompt that it would then attach to a newer
+     answer — that would satisfy the lineage check while being exactly the lie it exists to
+     catch. Cleared first, restored only on success. */
+  delete WC_UI[seat+":prompt"];
   try{
     const j = await apiJson(base+"/api/wildcard/prompt/"+encodeURIComponent(seat)+q);
+    /* The clipboard write comes FIRST. Recording the prompt before confirming the copy would
+       claim the auditor was given text that never reached it. */
     await navigator.clipboard.writeText(j.prompt||"");
+    WC_UI[seat+":prompt"] = j.prompt||"";
     toast(j.incomplete ? "Copied — but evidence is missing" : "Prompt copied");
     if(j.incomplete) wcSetStatus("Copied, but this prompt is MISSING: "+(j.missing||[]).join(", ")+". Do those first.","bad");
     else wcSetStatus("Copied"+((j.evidenceUsed||[]).length?" — it carries "+j.evidenceUsed.map(function(x){return WC_SHORT[x.seat]||x.seat;}).join(" + ")+"'s actual answers.":"."),"good");
   }catch(e){
+    delete WC_UI[seat+":prompt"];   // nothing was copied, so nothing may be claimed
     /* 409 = required prior evidence missing. Say so precisely rather than failing vaguely. */
     const body=e&&e.body;
     if(body&&body.tradeIncomplete) wcSetStatus("FINAL BLOCKED — trade analysis incomplete. Missing: "+(body.missing||[]).join(", ")+". The chair judges Claude's and DeepSeek's conclusions; without them it would be inventing the reasoning it is meant to weigh.","bad");
@@ -1557,11 +1573,19 @@ async function wcSaveResponse(seat){
   /* Stage comes from the seat definition and is sent as-is. night / locked / live are
      distinct and the server now stores exactly what it validated. */
   const stage = (WC_SEATS&&WC_SEATS[seat]&&WC_SEATS[seat].stage)||"night";
+  const promptSent = WC_UI[seat+":prompt"] || null;
+  /* An auditor's answer is worthless as an audit unless we can show WHICH evidence it read.
+     After a page reload the copied prompt is gone, so the prompt must be copied again rather
+     than saving a row that could never satisfy the lock. */
+  if(wcNeedsPromptLineage(seat) && !promptSent){
+    wcSetStatus("Press COPY PROMPT for "+(WC_SHORT[seat]||seat)+" first. Its answer can only count as an audit if we can show which evidence it read — and the copied prompt was lost on reload.","bad");
+    return;
+  }
   try{
     await apiJson(base+"/api/wildcard/seat",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({runId:WC_RUN.id, seat, stage, source:"manual", rawResponse:txt})});
+      body:JSON.stringify({runId:WC_RUN.id, seat, stage, source:"manual", rawResponse:txt, promptSent})});
     const wasReplacement = WC_RESP.some(function(r){ return r.seat===seat && r.stage==="night" && r.status==="ok"; });
-    delete WC_UI[seat];
+    delete WC_UI[seat]; delete WC_UI[seat+":prompt"];
     await wcRefresh();
     wcSetStatus(wasReplacement
       ? (WC_SHORT[seat]||seat)+" replaced. The previous answer is kept in the record."
@@ -1570,7 +1594,8 @@ async function wcSaveResponse(seat){
     /* 409 = the run is locked. Say exactly that rather than a generic failure — the whole
        point of the guard is that the owner learns his write did nothing. */
     const b=e&&e.body;
-    if(b&&b.locked) wcSetStatus("This run's evidence is already locked, so nothing was changed. Replacements must happen before locking.","bad");
+    if(b&&b.promptLineageRequired) wcSetStatus("Not saved. "+(b.note||"This seat's answer needs the exact prompt it was given.")+" Press COPY PROMPT, then paste and save again.","bad");
+    else if(b&&b.locked) wcSetStatus("This run's evidence is already locked, so nothing was changed. Replacements must happen before locking.","bad");
     else wcSetStatus("Couldn't save: "+wcErr(e),"bad");
   }
 }

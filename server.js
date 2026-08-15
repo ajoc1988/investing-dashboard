@@ -27,7 +27,7 @@ const { resolve: resolveCommitteeAction } = require('./committee-resolver');
  * by hand whenever the backend is deployed. Surfaced via /api/health so the frontend
  * can compare it against its own constant and flag frontend/backend deployment drift.
  * The frontend expects API_VERSION to match its EXPECTED_API constant.               */
-const API_VERSION = '2.7.1';
+const API_VERSION = '2.7.2';
 
 const app = express();
 app.use(express.json({ limit: '128kb' }));
@@ -1445,6 +1445,10 @@ function wcSeatModes() {
     out[k] = {
       label: v.label, stage: v.stage, provider: v.provider,
       step: WC_STEPS[k] || 'evidence',
+      /* Derived from auditorSeats(), which is itself derived from WC_REQUIRES. The frontend
+       * previously hardcoded ["perplexity"], which could drift the moment another auditing
+       * seat was added. One definition, published to the client. */
+      promptLineageRequired: auditorSeats().includes(k),
       autoAvailable,
       defaultMode: autoAvailable ? 'auto' : 'manual',
       manualAlwaysAvailable: true,
@@ -1655,6 +1659,45 @@ function pickLatestOk(responses, seat, stage) {
   })[0];
 }
 
+/* Which seats must prove what they audited. Only seats whose whole job is auditing other
+ * seats' output — the entry is derived from WC_REQUIRES so the two can never drift apart. */
+function auditorSeats() {
+  return WC_PACK_SEATS.filter(k => WC_REQUIRES[k] && (WC_REQUIRES[k].seats || []).length);
+}
+
+function checkAuditLineage(run, responses) {
+  for (const seat of auditorSeats()) {
+    const r = pickLatestOk(responses, seat, 'night');
+    if (!r) continue;                       // absence is buildEvidencePack's job to report
+    const def = WC_SEATS[seat];
+    const expectedPrompt = buildSeatPrompt(seat, def, run, responses).prompt;
+    if (expectedPrompt == null) {
+      return { ok: false, seat, reason: 'cannot_rebuild',
+               note: 'The audit prompt could not be rebuilt, so the audit cannot be shown to '
+                   + 'match the evidence being frozen.' };
+    }
+    const stored = r.prompt_sent;
+    if (!stored) {
+      return { ok: false, seat, reason: 'no_prompt_recorded',
+               expected: sha256hex(expectedPrompt).slice(0, 32), stored: null,
+               note: 'No prompt was recorded against ' + seat.toUpperCase() + "'s answer, so there is "
+                   + 'no way to show which evidence it examined. Copy the prompt again and re-save '
+                   + 'the audit.' };
+    }
+    const a = sha256hex(String(stored)), b = sha256hex(expectedPrompt);
+    if (a !== b) {
+      return { ok: false, seat, reason: 'evidence_changed_after_audit',
+               expected: b.slice(0, 32), stored: a.slice(0, 32),
+               note: seat.toUpperCase() + ' audited different evidence from what is about to be '
+                   + 'frozen — a response it examined has since been replaced. Re-run the audit '
+                   + 'against the current answers, then lock.' };
+    }
+  }
+  return { ok: true };
+}
+
+function sha256hex(v) { return crypto.createHash('sha256').update(String(v)).digest('hex'); }
+
 function buildEvidencePack(run, responses) {
   const missing = [], seats = {};
   for (const s of WC_PACK_SEATS) {
@@ -1820,7 +1863,7 @@ app.post('/api/wildcard/lock', async (req, res) => {
   try {
     [run] = await sbWc('GET', `wildcard_runs?id=eq.${runId}&select=id,candidates,evidence_pack,evidence_pack_hash,evidence_locked_at`);
     if (!run) return res.status(404).json({ error: 'run not found' });
-    prior = await sbWc('GET', `wildcard_seat_responses?run_id=eq.${runId}&select=id,created_at,seat,stage,source,status,provider,model,raw_response&order=created_at.asc`) || [];
+    prior = await sbWc('GET', `wildcard_seat_responses?run_id=eq.${runId}&select=id,created_at,seat,stage,source,status,provider,model,raw_response,prompt_sent&order=created_at.asc`) || [];
   } catch (e) {
     logUpstream('wildcard:lock:read', e);
     return res.status(502).json({ error: shortReason(String((e && e.message) || e)) });
@@ -1832,6 +1875,32 @@ app.post('/api/wildcard/lock', async (req, res) => {
       seats: Object.keys((run.evidence_pack && run.evidence_pack.seats) || {}),
       note: 'Already locked. The pack was NOT rebuilt — re-freezing would change the hash '
           + 'and break the identical-evidence guarantee.', ts: Date.now() });
+  }
+
+  /* ── AUDIT LINEAGE ────────────────────────────────────────────────────────────
+   * A pack is only "audited" if the auditor saw THE EVIDENCE BEING FROZEN. Nothing
+   * previously checked that, and a real run proved it matters: Perplexity was re-run at
+   * 21:52:44 against the Gemini answer that existed then, Gemini was replaced 16 seconds
+   * later, and the lock froze the new Gemini beside an audit of the old one. The synthesis
+   * chair spotted the mismatch; the system did not.
+   *
+   * A timestamp rule (auditor newer than audited) is NOT sufficient and was rejected. It
+   * loses this race:
+   *     1. audit prompt is built from Gemini A
+   *     2. Gemini B replaces A
+   *     3. the audit answer is saved
+   * The auditor is now newer than Gemini B while having audited Gemini A — and the check
+   * passes. Timestamps say when a row was written, never what it looked at.
+   *
+   * So compare the EVIDENCE ITSELF. Rebuild the prompt the auditor would be given for the
+   * responses about to be frozen, and require it to match the prompt actually sent. Equal
+   * prompt means equal evidence, which is the property that has to hold. */
+  const auditLineage = checkAuditLineage(run, prior);
+  if (!auditLineage.ok) {
+    return res.status(409).json({ error: 'audit_stale', auditStale: true,
+      reason: auditLineage.reason, seat: auditLineage.seat,
+      expectedPromptHash: auditLineage.expected, storedPromptHash: auditLineage.stored,
+      note: auditLineage.note });
   }
 
   const { missing, pack } = buildEvidencePack(run, prior);
@@ -1873,6 +1942,18 @@ app.post('/api/wildcard/seat', async (req, res) => {
   if (typeof b.rawResponse !== 'string' || !b.rawResponse.trim()) return res.status(400).json({ error: 'rawResponse required' });
   // Stage is never defaulted. An unrecognised stage is a bug in the caller, not something to guess at.
   if (!WC_STAGES.includes(b.stage)) return res.status(400).json({ error: 'stage must be one of: ' + WC_STAGES.join(', ') });
+
+  /* An auditor's answer without the prompt it was given is unusable: nothing can ever show
+   * which evidence it examined, so the lock would refuse it later anyway. Rejecting it here
+   * means no unusable row is written at all, rather than one that looks saved and silently
+   * blocks the lock afterwards. A FAILED response is exempt — it is never selected. */
+  if (b.stage === 'night' && b.status !== 'failed' && auditorSeats().includes(seat)
+      && (typeof b.promptSent !== 'string' || !b.promptSent.trim())) {
+    return res.status(400).json({ error: 'promptSent required for an auditing seat',
+      seat, promptLineageRequired: true,
+      note: seat.toUpperCase() + ' audits other seats, so its answer is only meaningful with the '
+          + 'exact prompt it was given. Copy the prompt again and re-save.' });
+  }
 
   /* ONCE LOCKED, THE NIGHT IS CLOSED.
    *
