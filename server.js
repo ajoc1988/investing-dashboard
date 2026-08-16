@@ -2839,14 +2839,40 @@ function lotSummary(tickets) {
  * month's execution. The previous version caught the error and returned the fallback, which
  * turned a momentary read failure into permission for a second execution. */
 async function lotReadStore() {
-  if (sbOn()) {
+  if (lotSbState() === 'partial') throw new Error('lottery store misconfigured: exactly one of SUPABASE_URL / SUPABASE_SERVICE_KEY is set');
+  if (lotSbState() === 'on') {
     const rows = await sbWc('GET', 'lottery_tickets?select=*&order=created_at.desc');
     return { tickets: Array.isArray(rows) ? rows : [], backend: 'supabase' };
   }
   return { tickets: histLoad().lottery.slice().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))), backend: 'file' };
 }
+/* Lottery reads the Supabase settings itself rather than trusting sbOn(), which is
+ * `SB_URL && SB_KEY` and therefore reports FALSE for a half-configured deployment. For the
+ * rest of the server that is a survivable degradation; for Lottery it is the exact failure
+ * this module exists to prevent — a missing key would silently hand the monthly limit to a
+ * file store that has never seen this month's execution. Half-configured is not
+ * "not configured", it is broken, and broken must refuse.
+ *   'on'      both set        -> Supabase is authoritative
+ *   'partial' exactly one set -> REFUSE. Never the file store.
+ *   'off'     neither set     -> the file fallback is legitimate */
+function lotSbState() {
+  const u = !!SB_URL, k = !!SB_KEY;
+  return (u && k) ? 'on' : (u || k) ? 'partial' : 'off';
+}
 /* Which backend a refusal came from, without needing a successful read to say so. */
-function lotBackend() { return sbOn() ? 'supabase' : 'file'; }
+function lotBackend() { const st = lotSbState(); return st === 'on' ? 'supabase' : st === 'partial' ? 'misconfigured' : 'file'; }
+
+/* Every Lottery route refuses before touching a store if the configuration is half done. */
+function lotConfigGuard(res) {
+  if (lotSbState() !== 'partial') return false;
+  res.status(502).json({
+    error: 'lottery_store_misconfigured', backend: 'misconfigured',
+    supabaseUrlSet: !!SB_URL, supabaseKeySet: !!SB_KEY,
+    note: 'SUPABASE_URL and SUPABASE_SERVICE_KEY must both be set, or neither. Exactly one is set, so the durable registry cannot be reached — refusing rather than falling back to a store that cannot see this month\'s execution.',
+    ts: Date.now()
+  });
+  return true;
+}
 /* A Supabase failure must never be reported as a durable write, and must never be
  * answered from temporary storage. */
 function lotStoreUnavailable(res, where, e) {
@@ -2866,15 +2892,26 @@ async function lotInsertStore(ticket, backend) {
   }
   const h = histLoad(); h.lottery.push(ticket); h.lottery = h.lottery.slice(-5000); histSave(); return ticket;
 }
-async function lotPatchStore(id, change, backend) {
+/* EVERY transition is conditioned on the status the caller believed it was acting on.
+ * Read-then-write by id alone is a lost update: two simultaneous activations of the same
+ * candidate both read CANDIDATE, both PATCH by id, and the second silently overwrites the
+ * first one's entry price, units and allocated capital — rewriting an executed trade.
+ * `status=eq.<expected>` makes the check and the write one operation, so the loser matches
+ * zero rows and is refused. `expected` may be a list for the archive transition.
+ * Returns null when nothing matched: the ticket moved underneath us. */
+async function lotPatchStore(id, change, backend, expected) {
+  const want = Array.isArray(expected) ? expected : [expected];
   if (backend === 'supabase') {
-    const rows = await sbWc('PATCH', `lottery_tickets?id=eq.${id}`, change);
+    const cond = want.length > 1
+      ? `status=in.(${want.join(',')})`
+      : `status=eq.${encodeURIComponent(want[0])}`;
+    const rows = await sbWc('PATCH', `lottery_tickets?id=eq.${id}&${cond}`, change);
     const saved = Array.isArray(rows) ? rows[0] : rows;
-    if (!saved) throw new Error('lottery update did not persist');
-    return saved;
+    return saved || null;          // zero rows = the status changed underneath us
   }
   const h = histLoad(), i = h.lottery.findIndex(t => t.id === id);
   if (i < 0) return null;
+  if (!want.includes(h.lottery[i].status)) return null;   // same guard, same meaning
   h.lottery[i] = Object.assign({}, h.lottery[i], change); histSave(); return h.lottery[i];
 }
 function lotPublic(ticket) {
@@ -2893,7 +2930,7 @@ function lotTzGuard(res) {
 }
 
 app.get('/api/lottery', async (req, res) => {
-  if (lotTzGuard(res)) return;
+  if (lotConfigGuard(res) || lotTzGuard(res)) return;
   let store;
   try { store = await lotReadStore(); }
   catch (e) { return lotStoreUnavailable(res, 'lottery:read', e); }
@@ -2903,7 +2940,7 @@ app.get('/api/lottery', async (req, res) => {
 });
 
 app.post('/api/lottery', async (req, res) => {
-  if (lotTzGuard(res)) return;
+  if (lotConfigGuard(res) || lotTzGuard(res)) return;
   const b = req.body || {}, ticker = lotText(b.ticker, 12).toUpperCase(), company = lotText(b.company, 120);
   const broker = lotText(b.broker, 40), status = lotText(b.status || 'WATCHLIST', 20).toUpperCase();
   const planned = lotNumber(b.plannedUsd);
@@ -2944,14 +2981,28 @@ app.post('/api/lottery', async (req, res) => {
   } catch (e) {
     logUpstream('lottery:create', e);
     const dupe = /409|23505|duplicate|unique/i.test(String((e && e.message) || e));
-    res.status(dupe ? 409 : 502).json({ error: dupe ? 'duplicate_ticker' : 'lottery_write_failed', ticker, backend: store.backend,
-      note: dupe ? 'The database rejected this ticker as already present in the Lottery registry.'
-                 : 'The durable Lottery registry did not accept the write. Nothing was recorded, and nothing was written to temporary storage.' });
+    if (!dupe) return res.status(502).json({ error: 'lottery_write_failed', ticker, backend: store.backend,
+      note: 'The durable Lottery registry did not accept the write. Nothing was recorded, and nothing was written to temporary storage.' });
+    /* Lost the race to another insert. Re-read so this refusal names the existing ticket and
+     * its status, exactly as the API-level check does — a bare "duplicate" tells Andy nothing
+     * about what he is already holding. A failed re-read must not downgrade the 409. */
+    let existing = null;
+    try {
+      const again = await lotReadStore();
+      const c2 = again.tickets.find(t => String(t.ticker || '').toUpperCase() === ticker);
+      if (c2) existing = { id: c2.id, ticker: c2.ticker, company: c2.company, status: c2.status,
+        entry_date: c2.entry_date || null, entry_month: c2.entry_month || null };
+    } catch (e2) { logUpstream('lottery:create:dupe-reread', e2); }
+    res.status(409).json({ error: 'duplicate_ticker', ticker, backend: store.backend,
+      existingTicket: existing, existingStatus: existing ? existing.status : null,
+      note: existing
+        ? 'The database rejected this ticker as already present in the Lottery registry. A second record would be a disguised top-up.'
+        : 'The database rejected this ticker as already present in the Lottery registry, and the registry could not be re-read to name the existing ticket. Reload before retrying.' });
   }
 });
 
 app.patch('/api/lottery/:id', async (req, res) => {
-  if (lotTzGuard(res)) return;
+  if (lotConfigGuard(res) || lotTzGuard(res)) return;
   const id = String(req.params.id || '');
   if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'bad_ticket_id' });
   const b = req.body || {}, action = lotText(b.action, 20).toLowerCase();
@@ -2969,11 +3020,15 @@ app.patch('/api/lottery/:id', async (req, res) => {
   if (!ticket) return res.status(404).json({ error: 'ticket_not_found' });
   const now = new Date().toISOString(), change = { updated_at: now };
 
+  /* The status this transition is conditioned on, enforced atomically at write time. */
+  let expected = null;
   if (action === 'candidate') {
     if (ticket.status !== 'WATCHLIST') return res.status(409).json({ error: 'only_watchlist_can_become_candidate' });
+    expected = 'WATCHLIST';
     change.status = 'CANDIDATE';
   } else if (action === 'activate') {
     if (ticket.status !== 'CANDIDATE') return res.status(409).json({ error: 'only_candidate_can_be_activated' });
+    expected = 'CANDIDATE';
     if (!ticket.thesis || !ticket.failure_condition || !ticket.objective)
       return res.status(409).json({ error: 'research_record_incomplete', note: 'Thesis, failure condition and long-term objective are all required before a manual buy can be recorded.' });
     const resolved = lotResolveEntryDate(b.entryDate);
@@ -2997,11 +3052,13 @@ app.patch('/api/lottery/:id', async (req, res) => {
       current_price: +entryPrice.toFixed(8), current_price_at: now });
   } else if (action === 'price') {
     if (ticket.status !== 'ACTIVE') return res.status(409).json({ error: 'only_active_ticket_can_be_priced' });
+    expected = 'ACTIVE';
     const price = lotNumber(b.currentPrice);
     if (price == null || price < 0) return res.status(400).json({ error: 'non_negative_current_price_required' });
     change.current_price = +price.toFixed(8); change.current_price_at = now;
   } else if (action === 'exit') {
     if (ticket.status !== 'ACTIVE') return res.status(409).json({ error: 'only_active_ticket_can_exit' });
+    expected = 'ACTIVE';
     const price = lotNumber(b.exitPrice), reason = lotText(b.reason, 5000);
     if (price == null || price < 0) return res.status(400).json({ error: 'non_negative_exit_price_required' });
     if (!reason) return res.status(400).json({ error: 'exit_reason_required' });
@@ -3009,20 +3066,27 @@ app.patch('/api/lottery/:id', async (req, res) => {
       current_price: +price.toFixed(8), current_price_at: now });
   } else if (action === 'writeoff') {
     if (ticket.status !== 'ACTIVE') return res.status(409).json({ error: 'only_active_ticket_can_be_written_off' });
+    expected = 'ACTIVE';
     const reason = lotText(b.reason, 5000);
     if (!reason) return res.status(400).json({ error: 'writeoff_reason_required' });
     Object.assign(change, { status: 'WRITTEN_OFF', exit_date: now.slice(0, 10), exit_price: 0, exit_reason: reason,
       current_price: 0, current_price_at: now });
   } else if (action === 'archive') {
     if (!['EXITED', 'WRITTEN_OFF'].includes(ticket.status)) return res.status(409).json({ error: 'only_closed_ticket_can_be_archived' });
+    expected = ['EXITED', 'WRITTEN_OFF'];
     change.status = 'ARCHIVED';
   } else {
     return res.status(400).json({ error: 'unknown_action', known: ['candidate','activate','price','exit','writeoff','archive'] });
   }
 
   try {
-    const saved = await lotPatchStore(id, change, store.backend);
-    if (!saved) return res.status(404).json({ error: 'ticket_not_found' });
+    const saved = await lotPatchStore(id, change, store.backend, expected);
+    /* Zero rows matched. The ticket was in `expected` when we read it, so something else
+     * moved it in between — a second concurrent transition. Refuse loudly: the alternative
+     * is overwriting an executed trade's entry price, units and capital. */
+    if (!saved) return res.status(409).json({ error: 'ticket_changed_underneath', action,
+      expectedStatus: Array.isArray(expected) ? expected.join(' or ') : expected, backend: store.backend,
+      note: 'Another request changed this ticket first. Nothing was written. Reload the registry and check its current state before retrying.' });
     res.json({ saved: lotPublic(saved), summary: lotSummary(store.tickets.map(t => t.id === id ? saved : t)),
       backend: store.backend, ts: Date.now() });
   } catch (e) {

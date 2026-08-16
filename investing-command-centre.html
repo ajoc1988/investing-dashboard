@@ -621,18 +621,22 @@
   .ltmore-body #alertsCard, .ltmore-body #oppCard{grid-column:2}
 
   /* ── the command block: what I own, what to do, and the controls, in one screen ── */
+  /* Left column reads top-down as the decision does: what I own, what is wrong, what I
+     hold, the controls. The action panel spans the whole of it on the right. */
   .summary       {grid-column:1; grid-row:2}
-  .cmdbar        {grid-column:1; grid-row:3}
-  .ltwarn        {grid-column:1; grid-row:4; margin-top:0}
-  .guide         {grid-column:2; grid-row:2 / span 3; margin-top:0}
+  .ltwarn        {grid-column:1; grid-row:3; margin-top:0}
+  .cmdbar        {grid-column:1; grid-row:5}
+  .guide         {grid-column:2; grid-row:2 / span 4; margin-top:0; align-self:stretch}
 
   /* ONE dominant instruction. */
   .guide .hd h2{font-size:16px}
   .gcard .gmain{font-size:21px}
 
   /* ── supporting evidence, demoted. Same data, no second headline. ── */
-  #convictionGate{grid-column:1; grid-row:5}
-  .tl            {grid-column:2; grid-row:5; margin-top:0; align-items:center}
+  /* Conviction and the traffic light are supporting evidence and now live inside MORE
+     DETAIL, paired there rather than placed on the page grid. */
+  .ltmore-body #convictionGate{grid-column:1; grid-row:auto}
+  .ltmore-body .tl            {grid-column:2; grid-row:auto; margin-top:0; align-items:center}
   /* The traffic light stops being a second giant recommendation and becomes a status strip.
      Nothing about how it is calculated changes — only how loudly it speaks. */
   .tl .lamp{flex-direction:row; width:auto; padding:0 13px; gap:6px; background:transparent}
@@ -662,12 +666,16 @@
      The card spans the full width and becomes its own two-column grid, so the holdings
      table gets the width it deserves and the donut sits beside it instead of under it.
      No duplicated markup, no second data path, and below 1100px the card is untouched. */
-  #pfCard{grid-column:1/-1; grid-row:6; display:grid; align-items:start;
+  /* Holdings are compact now: the donut, the composition bars and the explanation moved
+     into MORE DETAIL, so this card is a plain table again. */
+  #pfCard{grid-column:1; grid-row:4; display:block}
+  .ltmore{grid-column:1/-1; grid-row:6}
+  #allocCard{display:grid; align-items:start;
     grid-template-columns:minmax(0,1fr) 330px; column-gap:22px}
-  #pfCard > h2, #pfCard > .card-note, #pfCard > table, #pfCard > .means{grid-column:1}
+  #allocCard > h2, #allocCard > #allocBlock, #allocCard > .means{grid-column:1}
   /* the donut and its legend stay SIDE BY SIDE inside the right column — stacking them
      made the block ~450px tall, which forced the holdings rows to stretch to match it */
-  #pfCard > .pie-row{grid-column:2; grid-row:1 / span 3; margin-top:0; align-self:start;
+  #allocCard > .pie-row{grid-column:2; grid-row:1 / span 3; margin-top:0; align-self:start;
     flex-wrap:wrap; align-items:center; gap:12px; border-left:1px solid var(--line-soft); padding-left:20px}
   #pfCard > .pie-row::before{content:"ALLOCATION"; flex:1 1 100%; font-family:var(--mono);
     font-size:9.5px; letter-spacing:.16em; color:var(--muted-2)}
@@ -677,11 +685,11 @@
   /* The composition bars run FULL WIDTH beneath both columns, in three columns of their
      own. Left (table) and right (donut) then come out close in height, and the leftover
      space that has to go somewhere goes into a block that genuinely uses it. */
-  #pfCard > #allocBlock{grid-column:1/-1; margin-top:2px !important;
+  #allocCard > #allocBlock{grid-column:1; margin-top:2px !important;
     border-top:1px solid var(--line-soft); padding-top:12px}
   #pfCard > #allocBlock .eyebrow{margin:0 0 9px !important}
   #pfCard > #allocBlock .alloc{display:grid; grid-template-columns:repeat(3,1fr); gap:4px 26px}
-  #pfCard > .means{grid-column:1/-1}
+  #allocCard > .means{grid-column:1/-1}
   #pfCard table{font-size:13.5px}
   #pfCard table th,#pfCard table td{padding:10px 8px}
 
@@ -791,6 +799,7 @@
       <div class="mrow"><span class="k">ACTIVE</span><span class="v" id="amLoActive">—</span></div>
       <div class="mrow"><span class="k">AT RISK</span><span class="v" id="amLoRisk">—</span></div>
       <div class="mrow"><span class="k">VALUE</span><span class="v" id="amLoValue">—</span></div>
+      <div class="mrow"><span class="k">P/L</span><span class="v" id="amLoPl">—</span></div>
       <div class="mrow"><span class="k">WARNING</span><span class="v" id="amLoWarn">—</span></div>
       <button class="go" data-mission="lottery">OPEN LOTTERY</button>
     </section>
@@ -807,20 +816,12 @@
   <div class="pv" id="pv">$0<span class="bhd" id="pvBhd">/ BD 0</span></div>
   <div class="grid">
     <div class="g"><div class="k">Today P/L</div><div class="v" id="dayPl">—</div></div>
+    <div class="g"><div class="k">7-day</div><div class="v" id="sevenD">—</div></div>
     <div class="g"><div class="k">Total P/L</div><div class="v" id="totPl">—</div></div>
     <div class="g"><div class="k">Cash</div><div class="v" id="cashV">—</div></div>
     <div class="g"><div class="k">Cash %</div><div class="v" id="cashPc">—</div></div>
     <div class="g"><div class="k" id="dryK">Deployable</div><div class="v" id="dryV">—</div></div>
   </div>
-</div>
-
-<!-- CONVICTION GATE -->
-<div id="convictionGate"></div>
-
-<!-- TRAFFIC LIGHT -->
-<div class="tl" id="trafficLight">
-  <div class="lamp"><div class="d" id="lampR" style="color:var(--risk)"></div><div class="d" id="lampA" style="color:var(--watch)"></div><div class="d" id="lampG" style="color:var(--act)"></div></div>
-  <div class="body"><div class="act" id="tlAction">—</div><div class="why" id="tlWhy">Enter your portfolio to get a decision.</div></div>
 </div>
 
 <!-- BEHAVIOUR -->
@@ -829,6 +830,24 @@
   <ul id="bhvList"></ul>
   <div class="blunt" id="bhvBlunt"></div>
 </section>
+
+<!-- IDIOT'S GUIDE -->
+<div class="guide">
+  <div class="hd"><h2>WHAT DO I DO NOW?</h2><span class="stamp" id="guideStamp">—</span></div>
+  <div class="bd" id="guideBody"></div>
+</div>
+
+<!-- ONE warning strip. Either NO POLICY EXCEPTION, or the single most important
+     real warning. Never a list — a list of warnings is how the important one hides. -->
+<div class="ltwarn" id="ltWarnStrip"><span class="k" id="ltWarnK">—</span><span class="t" id="ltWarnT"></span></div>
+
+<!-- PORTFOLIO -->
+<section class="card" id="pfCard">
+  <h2><span class="dot" style="background:var(--data)"></span> PORTFOLIO (eToro)</h2>
+  <div class="card-note" id="pfNote">Manual holdings. Connect a price source in Settings for live values.</div>
+  <table><thead><tr><th>Holding</th><th>Value</th><th>Today</th><th>P/L</th><th>Now %</th></tr></thead><tbody id="pfBody"></tbody></table>
+</section>
+
 
 <!-- ACTIONS + CONTROLS -->
 <!-- .cmdbar exists ONLY so the desktop breakpoint can gather these four blocks into one
@@ -856,27 +875,6 @@
 </div>
 </div><!-- /.cmdbar -->
 
-<!-- IDIOT'S GUIDE -->
-<div class="guide">
-  <div class="hd"><h2>WHAT DO I DO NOW?</h2><span class="stamp" id="guideStamp">—</span></div>
-  <div class="bd" id="guideBody"></div>
-</div>
-
-<!-- ONE warning strip. Either NO POLICY EXCEPTION, or the single most important
-     real warning. Never a list — a list of warnings is how the important one hides. -->
-<div class="ltwarn" id="ltWarnStrip"><span class="k" id="ltWarnK">—</span><span class="t" id="ltWarnT"></span></div>
-
-<!-- PORTFOLIO -->
-<section class="card" id="pfCard">
-  <h2><span class="dot" style="background:var(--data)"></span> PORTFOLIO (eToro)</h2>
-  <div class="card-note" id="pfNote">Manual holdings. Connect a price source in Settings for live values.</div>
-  <table><thead><tr><th>Holding</th><th>Value</th><th>P/L</th><th>Now %</th></tr></thead><tbody id="pfBody"></tbody></table>
-  <div class="pie-row"><div class="pie"><div id="portfolioPie"></div></div><div class="pie-legend" id="pieLegend"></div></div>
-  <div id="allocBlock" style="margin-top:6px"><div class="eyebrow" style="margin:14px 0 8px">Composition — descriptive</div><div class="alloc" id="allocWrap"></div></div>
-  <div class="means"><b>What this means for Andrew</b><span id="pfMeans">—</span></div>
-</section>
-
-
 <!-- ═══ MORE DETAIL ═══════════════════════════════════════════════════════════
  * Nothing below is deleted or disconnected — every render function still writes to
  * exactly the same ids. The section is COLLAPSED by default on desktop and phone
@@ -886,6 +884,24 @@
 <details class="ltmore" id="ltMore">
   <summary><span class="lm-t">MORE DETAIL · ANALYSIS &amp; DIAGNOSTICS</span><span class="lm-s">Gauges, trend, alerts, markets, deployment, committee, journal, diagnostics</span></summary>
   <div class="ltmore-body">
+<!-- CONVICTION GATE -->
+<div id="convictionGate"></div>
+
+<!-- TRAFFIC LIGHT -->
+<div class="tl" id="trafficLight">
+  <div class="lamp"><div class="d" id="lampR" style="color:var(--risk)"></div><div class="d" id="lampA" style="color:var(--watch)"></div><div class="d" id="lampG" style="color:var(--act)"></div></div>
+  <div class="body"><div class="act" id="tlAction">—</div><div class="why" id="tlWhy">Enter your portfolio to get a decision.</div></div>
+</div>
+
+<!-- ALLOCATION / COMPOSITION — secondary evidence, so it lives in MORE DETAIL.
+     Same ids, same render path; only its position changed. -->
+<section class="card" id="allocCard">
+  <h2><span class="dot" style="background:var(--data)"></span> ALLOCATION &amp; COMPOSITION</h2>
+  <div class="pie-row"><div class="pie"><div id="portfolioPie"></div></div><div class="pie-legend" id="pieLegend"></div></div>
+  <div id="allocBlock" style="margin-top:6px"><div class="eyebrow" style="margin:14px 0 8px">Composition — descriptive</div><div class="alloc" id="allocWrap"></div></div>
+  <div class="means"><b>What this means for Andrew</b><span id="pfMeans">—</span></div>
+</section>
+
 <!-- METERS -->
 <div class="meters">
   <div class="meter"><div class="k">Concentration</div><div class="gz" id="gHealth"></div><div class="v" id="vHealth">—</div></div>
@@ -2047,7 +2063,26 @@ function wcClose(){ const o=$("wcOverlay"); if(o)o.classList.remove("open"); doc
  * compares against a RECORDED SNAPSHOT or it says there is nothing to compare with. */
 let LAST_C=null;
 let ALL_RUN=null;          // latest Wildcard run as seen by ALL — never written back to WC_RUN
+let ALL_RESP=[];           // its seat responses; the run row alone cannot give the stage
 let ALL_LOT_ERR=null;      // why the Lottery registry could not be read, if it could not
+let ALL_RUN_ERR=null;      // why the run detail could not be read, if it could not
+
+/* Which step the Daily run has actually reached, derived from STORED seat responses —
+ * the same conditions wcStepDone() uses, read here without touching WC_RUN/WC_RESP.
+ * /api/wildcard/runs?limit=1 returns the run row only: no seat responses, so no stage,
+ * no verdict and no way to tell evidence from decision. The detail endpoint is required. */
+function allDailyStage(){
+  const R = WC_RUN || ALL_RUN;
+  const resp = (WC_RUN ? WC_RESP : ALL_RESP) || [];
+  if(!R || !R.id) return { key:"none", label:"No run recorded today" };
+  const ok = function(seat){ return resp.some(function(r){ return r.seat===seat && r.status==="ok"; }); };
+  if(resp.some(wcSynthUsable))            return { key:"complete", label:"Complete" };
+  if(ok("claude") && ok("deepseek"))      return { key:"decision", label:"Decision" };
+  if(R.evidence_pack_hash)                return { key:"trade",    label:"Trade" };
+  if(ok("perplexity"))                    return { key:"review",   label:"Review — evidence not yet locked" };
+  if(ok("grok") && ok("gemini"))          return { key:"audit",    label:"Audit" };
+  return { key:"evidence", label:"Evidence" };
+}
 
 /* ALL fetches its own copy. It must not call wcLoadSeats()/lotOpen(), which drive the
  * takeover screens: an overview quietly changing the state of another mission is exactly
@@ -2058,8 +2093,19 @@ async function allLoadMissions(){
   try{ const j=await apiJson(base+"/api/lottery");
        LOT={tickets:j.tickets||[],summary:j.summary||null,rules:j.rules||null,backend:j.backend||null}; }
   catch(e){ ALL_LOT_ERR=(e&&e.body&&e.body.error)||(e&&e.message)||String(e); }
-  try{ const j=await apiJson(base+"/api/wildcard/runs?limit=1"); ALL_RUN=(j.runs||[])[0]||null; }
-  catch(e){ ALL_RUN=null; }
+  ALL_RUN_ERR=null;
+  try{
+    const j=await apiJson(base+"/api/wildcard/runs?limit=1");
+    ALL_RUN=(j.runs||[])[0]||null; ALL_RESP=[];
+    /* The run row carries no seat responses, so the stage, the verdict and the trade
+     * reasoning all live behind the detail endpoint. Read-only: nothing here is written
+     * back into WC_RUN/WC_RESP, which drive the Daily takeover screen. */
+    if(ALL_RUN&&ALL_RUN.id){
+      const d=await apiJson(base+"/api/wildcard/run/"+encodeURIComponent(ALL_RUN.id));
+      ALL_RUN=d.run||ALL_RUN; ALL_RESP=d.seatResponses||[];
+    }
+  }
+  catch(e){ ALL_RUN_ERR=(e&&e.body&&e.body.error)||(e&&e.message)||String(e); }
   allRender();
 }
 
@@ -2087,43 +2133,77 @@ function allLine(kind,label,text){
   return '<div class="all-line '+kind+'"><span class="b"></span><span class="x"><b>'+esc(label)+'</b>'+esc(text)+'</span></div>';
 }
 
-/* Material change, ranked, maximum three. Every entry is evidenced by a stored
- * snapshot, a stored alert or a recorded mission state — never by today's numbers alone. */
+/* Material change, ranked, maximum three.
+ *
+ * THE STORE MATTERS. This read S.snapshots, which holds market levels only — spx, ndx,
+ * vix, yields, dxy, fear/greed. It has no portfolio value, no cash and no holdings, so
+ * every comparison below silently evaluated against undefined and could never have
+ * reported a real change. The portfolio snapshots live in S.history, written by
+ * recordSnapshot(). This now compares two RECORDED snapshots against each other —
+ * never a recorded value against a live one, and never a current state against nothing. */
+function allPrevPair(){
+  const h=Array.isArray(S.history)?S.history:[];
+  if(h.length<2)return null;
+  return { prev:h[h.length-2], cur:h[h.length-1] };
+}
 function allChanges(c){
-  const out=[],prev=prevDaySnap();
-  if(!prev){
-    out.push(allLine("","NO BASELINE","No earlier snapshot to compare against yet. Refresh once and tomorrow this fills in."));
+  const out=[],pair=allPrevPair();
+  if(!pair){
+    out.push(allLine("","NO BASELINE","Only one recorded snapshot so far, so there is nothing to compare against. Refresh again and this fills in."));
     return out;
   }
-  const dv=allDelta(c.pot,prev.value);
+  const prev=pair.prev,cur=pair.cur;
+  const dv=allDelta(cur.value,prev.value);
   if(dv&&Math.abs(dv.pc)>=1)
-    out.push(allLine(dv.d>0?"up":"down","PORTFOLIO","Moved "+(dv.d>0?"up":"down")+" "+usd(Math.abs(dv.d))+" ("+dv.pc.toFixed(1)+"%) since the last recorded snapshot."));
-  // Largest holding mover, measured snapshot-to-snapshot.
-  if(Array.isArray(prev.holdings)&&prev.holdings.length){
+    out.push(allLine(dv.d>0?"up":"down","PORTFOLIO","Moved "+(dv.d>0?"up":"down")+" "+usd(Math.abs(dv.d))+" ("+dv.pc.toFixed(1)+"%) between the last two recorded snapshots."));
+
+  // Largest holding mover, both sides read from stored snapshots.
+  if(Array.isArray(prev.holdings)&&Array.isArray(cur.holdings)){
     let top=null;
     prev.holdings.forEach(function(ph){
-      const now=c.rows[ph.sym];if(!now||!(ph.val>0))return;
+      const now=cur.holdings.filter(function(x){return x.sym===ph.sym;})[0];
+      if(!now||!(ph.val>0))return;
       const d=now.val-ph.val,pc=d/ph.val*100;
       if(!top||Math.abs(pc)>Math.abs(top.pc))top={sym:ph.sym,d:d,pc:pc};
     });
     if(top&&Math.abs(top.pc)>=2)
-      out.push(allLine(top.d>0?"up":"down","LARGEST MOVER",top.sym+" "+(top.d>0?"up":"down")+" "+Math.abs(top.pc).toFixed(1)+"% ("+usd(Math.abs(top.d))+") since the last snapshot."));
+      out.push(allLine(top.d>0?"up":"down","LARGEST MOVER",top.sym+" "+(top.d>0?"up":"down")+" "+Math.abs(top.pc).toFixed(1)+"% ("+usd(Math.abs(top.d))+") between the last two snapshots."));
   }
-  const dc=allDelta(c.cash,prev.cash);
+  const dc=allDelta(cur.cash,prev.cash);
   if(dc&&Math.abs(dc.d)>=250)
-    out.push(allLine(dc.d>0?"up":"down","CASH","Broker cash "+(dc.d>0?"up":"down")+" "+usd(Math.abs(dc.d))+" since the last snapshot."));
-  if(c.concPc!=null&&prev.holdings){
-    const prevTop=prev.holdings.reduce(function(a,b){return (!a||b.pc>a.pc)?b:a;},null);
-    if(prevTop&&c.concPc>=40&&prevTop.pc<40)
-      out.push(allLine("warn","CONCENTRATION","Largest holding crossed 40% of the portfolio ("+c.concPc.toFixed(1)+"%)."));
+    out.push(allLine(dc.d>0?"up":"down","CASH","Broker cash "+(dc.d>0?"up":"down")+" "+usd(Math.abs(dc.d))+" between the last two snapshots."));
+
+  // Concentration crossing, both sides from stored allocations.
+  if(Array.isArray(prev.holdings)&&Array.isArray(cur.holdings)){
+    const topPc=function(sn){return sn.holdings.reduce(function(a,b){return (!a||b.pc>a.pc)?b:a;},null);};
+    const pT=topPc(prev),cT=topPc(cur);
+    if(pT&&cT&&cT.pc>=40&&pT.pc<40)
+      out.push(allLine("warn","CONCENTRATION",cT.sym+" crossed 40% of the portfolio ("+cT.pc.toFixed(1)+"%)."));
   }
-  const al=activeAlerts(c);
-  if(al.length&&(!prev.alertCount||al.length>prev.alertCount))
-    out.push(allLine("warn","ALERT",al[0].title||al[0].msg||"A new alert is active."));
-  if(LOT&&LOT.summary&&LOT.summary.monthSlotUsed)
-    out.push(allLine("","LOTTERY","This month's Lottery execution slot is used."));
-  if(WC_RUN&&WC_RUN.id)
-    out.push(allLine("","DAILY","Today's Wildcard run is at "+esc(String(wcStepNow&&wcStepNow()||"in progress"))+"."));
+  // Alerts: only a RISE against a recorded count is a change.
+  if(typeof cur.alertCount==="number"&&typeof prev.alertCount==="number"&&cur.alertCount>prev.alertCount)
+    out.push(allLine("warn","ALERT",(cur.alertCount-prev.alertCount)+" new alert(s) since the last snapshot."));
+
+  /* Lottery and Daily have no snapshot history of their own, so a prior recorded state is
+   * kept here explicitly. Describing the CURRENT slot or run as a change — which this used
+   * to do unconditionally — is not a change, it is a status, and it read as news every
+   * single time the page loaded. First sighting records and reports nothing. */
+  const seen=S.missionSeen||(S.missionSeen={});
+  if(LOT&&LOT.summary){
+    const slot=(LOT.summary.month||"")+":"+(LOT.summary.monthSlotUsed?"USED":"OPEN");
+    if(seen.lotSlot&&seen.lotSlot!==slot&&LOT.summary.monthSlotUsed)
+      out.push(allLine("","LOTTERY","This month's Lottery execution slot has been used since you last looked."));
+    seen.lotSlot=slot;
+  }
+  const R=WC_RUN||ALL_RUN;
+  if(R&&R.id){
+    const st=R.id+":"+allDailyStage().key;
+    if(seen.daily&&seen.daily!==st)
+      out.push(allLine("","DAILY","Today's Wildcard run moved to "+allDailyStage().label+"."));
+    seen.daily=st;
+  }
+  try{ persist(); }catch(_){}
+
   if(!out.length)out.push(allLine("","STEADY","No major change since the last recorded snapshot."));
   return out.slice(0,3);
 }
@@ -2135,7 +2215,18 @@ function allRender(c){
 
   $("allPv").innerHTML=c.pot>0?usd(c.pot)+'<span class="bhd"> / '+bhd(c.pot)+'</span>':"Enter your portfolio to see a value";
   const td=$("allToday");
-  if(c.haveDp&&c.dayPl!=null){td.className="v "+plClass(c.dayPl);td.innerHTML=(c.dayPl>0?"+":"")+usd(c.dayPl);}
+  if(c.haveDp&&c.dayPl!=null){
+    td.className="v "+plClass(c.dayPl);
+    /* Percentage from the broker where it is given, otherwise derived against the opening
+     * value (today's close minus today's move). If neither is possible, say which half is
+     * missing instead of printing an amount that looks complete. */
+    let pct=null;
+    if(S.etoroDayPlPct!=null) pct=+S.etoroDayPlPct;
+    else { const open=c.pot-c.dayPl; if(open>0) pct=c.dayPl/open*100; }
+    td.innerHTML=(c.dayPl>0?"+":"")+usd(c.dayPl)+(pct!=null
+      ? ' <span class="bhd">'+(pct>0?"+":"")+pct.toFixed(2)+'%</span>'
+      : ' <span class="bhd">percentage unavailable</span>');
+  }
   else{td.className="v small";td.textContent="Today's broker P/L unavailable";}
   const w=allSnapAgo(7);
   allSetDelta("all7d",w?allDelta(c.pot,w.value):null,"Not enough history yet");
@@ -2175,24 +2266,29 @@ function allRender(c){
 
   // ── Daily card. State only. NEVER an instruction: Daily's rules live on Daily.
   const dl=$("amDlState"),dv=$("amDlVerdict"),dr=$("amDlResult");
-  const R=WC_RUN||ALL_RUN;
+  const R=WC_RUN||ALL_RUN, resp=(WC_RUN?WC_RESP:ALL_RESP)||[];
   if(!S.backendUrl){dl.textContent="Connect the backend in Settings to see today's run.";dv.textContent="Unavailable";dr.textContent="Unavailable";}
+  else if(ALL_RUN_ERR){dl.textContent="Run unavailable: "+ALL_RUN_ERR;dv.textContent="Unavailable";dr.textContent="Unavailable";}
   else if(!R||!R.id){dl.textContent="No run recorded today.";dv.textContent="No verdict — no run.";dr.textContent="No result recorded.";}
   else{
-    dl.textContent=R.evidence_pack_hash?"Evidence locked.":"Evidence gathering in progress.";
-    const d=(R.decision&&R.decision.verdict)||null;
-    dv.textContent=d?String(d):"No verdict recorded yet.";
-    dr.textContent=R.result_pnl!=null?usd(R.result_pnl):"No result recorded.";
+    const st=allDailyStage();
+    dl.textContent=st.label+(R.evidence_pack_hash?" · evidence locked":"");
+    const syn=resp.filter(wcSynthUsable).slice(-1)[0]||null;
+    const dec=syn?wcDecisionOf(syn):null;
+    dv.textContent=dec&&dec.verdict?String(dec.verdict)+(dec.ticker?" · "+dec.ticker:""):"No verdict recorded yet.";
+    /* The backend stores no result or P&L on a Wildcard run — there is no field to read.
+     * Say that, rather than leaving a dash that looks like a value that failed to load. */
+    dr.textContent="Not recorded — Wildcard runs carry no result field yet.";
   }
 
   // ── Lottery card. Never a recommendation. NO AI GO is binding.
   const ls=LOT&&LOT.summary;
   if(!S.backendUrl){$("amLoSlot").textContent="—";$("amLoActive").textContent="Connect the backend in Settings.";
-    $("amLoRisk").textContent="Unavailable";$("amLoValue").textContent="Unavailable";$("amLoWarn").textContent="Unavailable";}
+    $("amLoRisk").textContent="Unavailable";$("amLoValue").textContent="Unavailable";$("amLoPl").textContent="Unavailable";$("amLoWarn").textContent="Unavailable";}
   else if(ALL_LOT_ERR){$("amLoSlot").textContent="—";$("amLoActive").textContent="Registry unavailable: "+ALL_LOT_ERR;
-    $("amLoRisk").textContent="Unavailable";$("amLoValue").textContent="Unavailable";$("amLoWarn").textContent="Unavailable";}
+    $("amLoRisk").textContent="Unavailable";$("amLoValue").textContent="Unavailable";$("amLoPl").textContent="Unavailable";$("amLoWarn").textContent="Unavailable";}
   else if(!ls){$("amLoSlot").textContent="—";$("amLoActive").textContent="Registry not loaded yet.";
-    $("amLoRisk").textContent="Unavailable";$("amLoValue").textContent="Unavailable";$("amLoWarn").textContent="Unavailable";}
+    $("amLoRisk").textContent="Unavailable";$("amLoValue").textContent="Unavailable";$("amLoPl").textContent="Unavailable";$("amLoWarn").textContent="Unavailable";}
   else{
     $("amLoSlot").textContent=ls.monthSlotUsed?"USED":"OPEN";
     $("amLoActive").textContent=String(ls.activeCount||0)+" active ticket"+((ls.activeCount===1)?"":"s");
@@ -2200,6 +2296,20 @@ function allRender(c){
     const act=(LOT.tickets||[]).filter(function(t){return t.status==="ACTIVE";});
     const priced=act.filter(function(t){return lotLatestValue(t)!=null;});
     $("amLoValue").textContent=!act.length?"No active tickets":(priced.length?lotMoney(priced.reduce(function(n,t){return n+lotLatestValue(t);},0))+(priced.length<act.length?" ("+priced.length+" of "+act.length+" priced)":""):"No ticket prices recorded");
+    /* Recorded P/L = realised on closed tickets, plus unrealised on the ACTIVE tickets that
+     * actually carry a price. A ticket with no recorded price contributes nothing and is
+     * counted as missing, never as zero. */
+    const all=LOT.tickets||[];
+    const closed=all.filter(function(t){return t.status==="EXITED"||t.status==="WRITTEN_OFF"||t.status==="ARCHIVED";});
+    const realised=closed.reduce(function(n,t){
+      return (t.exit_price!=null&&t.units!=null&&t.allocated_usd!=null)
+        ? n+((+t.exit_price)*(+t.units)-(+t.allocated_usd)) : n; },0);
+    const unreal=priced.reduce(function(n,t){return n+(lotLatestValue(t)-(+t.allocated_usd||0));},0);
+    const haveAny=closed.length||priced.length;
+    $("amLoPl").textContent=!haveAny
+      ? "Nothing closed or priced yet"
+      : lotMoney(realised+unreal)+" ("+closed.length+" closed, "+priced.length+" priced"
+        +(priced.length<act.length?", "+(act.length-priced.length)+" unpriced excluded":"")+")";
     const fail=act.filter(function(t){return t.failure_condition;})[0];
     $("amLoWarn").textContent=fail?(fail.ticker+": "+fail.failure_condition):"No failure condition recorded";
   }
@@ -2256,7 +2366,11 @@ function setMissionView(view,scrollTop){
 }
 
 function lotMoney(v){const n=+v;return Number.isFinite(n)?(n<0?"-":"")+"$"+Math.abs(n).toLocaleString(undefined,{minimumFractionDigits:0,maximumFractionDigits:2}):"—";}
-function lotToday(){return new Date().toISOString().slice(0,10);}
+/* lotToday() is GONE on purpose. It was `new Date().toISOString().slice(0,10)` — a UTC
+ * date — used to prefill an editable entry-date field that was then sent to the server.
+ * Between 00:00 and 02:59 Bahrain, UTC is still yesterday, so the browser submitted
+ * yesterday's date and the backend correctly refused a legitimate activation as
+ * back-dating. The date is the server's to decide; the client no longer has an opinion. */
 function lotStatusClass(s){return String(s||"").toLowerCase();}
 function lotLatestValue(t){return t.status==="ACTIVE"&&t.current_price!=null&&t.units!=null?(+t.current_price)*(+t.units):null;}
 function lotTicketHtml(t){
@@ -2274,10 +2388,12 @@ function lotTicketHtml(t){
   if(status==="WATCHLIST"){
     h+='<div class="lot-actions"><button class="lot-btn" data-lot-action="candidate" data-lot-id="'+id+'">MARK CANDIDATE</button></div>';
   }else if(status==="CANDIDATE"){
-    h+='<div class="lot-fields"><div class="lot-field"><label>Entry date</label><input type="date" value="'+lotToday()+'" data-lot-entry-date="'+id+'"></div>'
+    h+='<div class="lot-fields">'
       +'<div class="lot-field"><label>Entry price</label><input type="number" min="0.000001" step="any" data-lot-entry-price="'+id+'"></div>'
       +'<div class="lot-field"><label>Units</label><input type="number" min="0.000001" step="any" data-lot-units="'+id+'"></div>'
       +'<div class="lot-field"><label>Allocated USD</label><input type="number" min="1" step="0.01" value="'+esc(t.planned_usd==null?100:t.planned_usd)+'" data-lot-amount="'+id+'"></div></div>'
+      +'<div class="lot-note" data-lot-datenote="'+id+'">Dated by the server in the Lottery calendar ('
+      +esc((LOT.rules&&LOT.rules.timezone)||'Asia/Bahrain')+'). Your device clock is not used.</div>'
       +'<div class="lot-actions"><button class="lot-btn" data-lot-action="activate" data-lot-id="'+id+'">RECORD MANUAL BUY</button></div>';
   }else if(status==="ACTIVE"){
     h+='<div class="lot-fields"><div class="lot-field"><label>Manual current price</label><input type="number" min="0" step="any" value="'+esc(t.current_price==null?"":t.current_price)+'" data-lot-price="'+id+'"></div></div>'
@@ -2320,7 +2436,9 @@ function lotField(sel,id){const e=document.querySelector('['+sel+'="'+id+'"]');r
 async function lotPatch(id,body){const base=lotBase();if(!base)return;try{await apiJson(base+"/api/lottery/"+encodeURIComponent(id),{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});lotSetStatus("Ticket updated.","good");await lotLoad();}catch(e){lotSetStatus((e&&e.body&&e.body.note)||(e&&e.body&&e.body.error)||e.message||String(e),"bad");}}
 async function lotAct(action,id){
   if(action==="candidate")return lotPatch(id,{action});
-  if(action==="activate")return lotPatch(id,{action,entryDate:lotField("data-lot-entry-date",id),entryPrice:lotField("data-lot-entry-price",id),units:lotField("data-lot-units",id),allocatedUsd:lotField("data-lot-amount",id)});
+  /* entryDate is deliberately NOT sent. The server records its own Asia/Bahrain date;
+   * anything this browser supplied could only ever disagree with it. */
+  if(action==="activate")return lotPatch(id,{action,entryPrice:lotField("data-lot-entry-price",id),units:lotField("data-lot-units",id),allocatedUsd:lotField("data-lot-amount",id)});
   if(action==="price")return lotPatch(id,{action,currentPrice:lotField("data-lot-price",id)});
   if(action==="exit")return lotPatch(id,{action,exitPrice:lotField("data-lot-exit-price",id),reason:lotField("data-lot-exit-reason",id)});
   if(action==="writeoff")return lotPatch(id,{action,reason:lotField("data-lot-exit-reason",id)});
@@ -2706,6 +2824,14 @@ function render(){
     const pct=S.etoroDayPlPct!=null?` (${S.etoroDayPlPct>0?'+':''}${S.etoroDayPlPct}%)`:'';
     $("dayPl").innerHTML+=`<span class="bhd" style="opacity:.7">${pct} est.${S.etoroDayPlPartial?'*':''}</span>`;
   }
+  /* Seven-day change, from the recorded portfolio snapshots. Says which half is missing
+   * rather than showing a dash that reads like a failed load. */
+  (function(){
+    const el=$("sevenD"),w=allSnapAgo(7),d=w?allDelta(c.pot,w.value):null;
+    if(!d){el.className="v flat";el.style.fontSize="10.5px";el.textContent="Not enough history yet";return;}
+    el.style.fontSize="";el.className="v "+plClass(d.d);
+    el.innerHTML=(d.d>0?"+":"")+dual(d.d)+' <span class="bhd">'+(d.pc>0?"+":"")+d.pc.toFixed(2)+'%</span>';
+  })();
   setPl("totPl",c.invested>0?c.totPl:null);
   $("cashV").innerHTML=dual(c.cash);
   $("cashPc").textContent=c.cashPc.toFixed(1)+"%";
@@ -2840,7 +2966,7 @@ function renderPortfolio(c){
   const src=S.source==="etoro"?"Synced from eToro (read-only)":S.source==="etoro-fail"?"eToro sync unavailable — using manual/last known data.":(S.market.live?"Live prices via backend/Finnhub.":"Manual entry.");
   $("pfNote").textContent=c.invested>0?src:"No holdings yet — tap Edit portfolio.";
   let held=c.list.filter(a=>c.rows[a].val>0);if(!held.length)held=c.list;
-  $("pfBody").innerHTML=held.map(a=>{const r=c.rows[a];return `<tr><td><div class="tkr"><span class="badge" style="background:${colorFor(a)}">${a}</span>${esc(r.name)}</div></td><td>${r.val?dual(r.val):'—'}</td><td class="${plClass(r.pl)}">${(r.cost||r.pl)?(r.pl>=0?'+':'')+usd(r.pl):'—'}</td><td>${r.nowPc.toFixed(1)}%</td></tr>`;}).join("")||'<tr><td colspan="4" style="color:var(--muted)">No holdings</td></tr>';
+  $("pfBody").innerHTML=held.map(a=>{const r=c.rows[a];return `<tr><td><div class="tkr"><span class="badge" style="background:${colorFor(a)}">${a}</span>${esc(r.name)}</div></td><td>${r.val?dual(r.val):'—'}</td><td class="${r.dp==null?'flat':plClass(r.dp)}">${r.dp==null?'<span style="color:var(--muted-2);font-size:10px">no daily %</span>':(r.dp>0?'+':'')+r.dp.toFixed(2)+'%'}</td><td class="${plClass(r.pl)}">${(r.cost||r.pl)?(r.pl>=0?'+':'')+usd(r.pl):'—'}</td><td>${r.nowPc.toFixed(1)}%</td></tr>`;}).join("")||'<tr><td colspan="5" style="color:var(--muted)">No holdings</td></tr>';
   const segs=c.list.map(a=>({label:a,value:c.rows[a].val,color:colorFor(a)})).concat([{label:"Cash",value:c.cash,color:CASH_COLOR}]);
   $("portfolioPie").innerHTML=donut(segs,{c1:c.invested>0?usd(c.pot):"",c2:c.invested>0?"value":""});
   $("pieLegend").innerHTML=segs.filter(s=>s.value>0).map(s=>`<div class="lg"><span class="sw" style="background:${s.color}"></span><span class="nm">${s.label}</span><span class="pc">${c.pot>0?(s.value/c.pot*100).toFixed(1):0}%</span></div>`).join("")||'<span style="font-size:12px;color:var(--muted)">No holdings yet.</span>';
@@ -2995,7 +3121,10 @@ function recordSnapshot(c,trigger){
     alloc:Object.fromEntries(c.list.map(a=>[a,+c.rows[a].nowPc.toFixed(1)]).concat([["CASH",+c.cashPc.toFixed(1)]])),
     totPl:r0(c.totPl),dayPl:c.haveDp?r0(c.dayPl):null,
     danger:c.danger,opportunity:c.opportunity,status:c.status,light:c.light,
-    aiVerdict:localVerdict(),suggestedDeploy:c.deployNow,source:S.source};
+    aiVerdict:localVerdict(),suggestedDeploy:c.deployNow,source:S.source,
+    // Recorded so ALL can tell a NEW alert from a standing one. Without it the comparison
+    // has no prior side and every alert reads as new, or none ever does.
+    alertCount:activeAlerts(c).length};
   // de-dupe: skip if an identical-value snapshot was stored < 2 min ago by the same trigger
   const last=S.history[S.history.length-1];
   if(last&&last.trigger===snap.trigger&&Math.abs(last.value-snap.value)<1&&(snap.ts-last.ts)<120000){S.history[S.history.length-1]=snap;}
