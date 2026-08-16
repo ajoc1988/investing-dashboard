@@ -31,7 +31,7 @@
   button{font-family:var(--body); cursor:pointer; border:none; color:inherit}
   .eyebrow{font-family:var(--mono); font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--muted-2)}
 
-  header.top{display:flex; align-items:flex-start; justify-content:space-between; gap:10px; padding:6px 48px 12px 2px}
+  header.top{display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:10px; padding:6px 48px 12px 2px}
   header.top h1{font-size:18px; font-weight:700; line-height:1.1}
   header.top .sub{font-size:11px; color:var(--muted); margin-top:3px}
   .conf{display:flex; flex-direction:column; align-items:flex-end; gap:3px; font-size:10.5px; color:var(--muted)}
@@ -48,6 +48,140 @@
   .navmenu button:hover,.navmenu button:focus-visible{background:var(--panel-2)}
   .navsep{height:1px; background:var(--line-soft); margin:4px 2px}
   body:not(.show-markets) .sec-markets{display:none !important}
+
+  /* One app, three deliberately separate money missions. ALL is an overview, not a place
+     where Daily or Lottery can issue instructions beside the long-term policy. */
+  .mission-shell{flex:1 1 100%; min-width:0; margin-top:4px}
+  .mission-tabs{display:grid; grid-template-columns:repeat(4,1fr); gap:5px; padding:5px; border:1px solid var(--line); border-radius:12px; background:var(--panel)}
+  .mission-tabs button{min-width:0; padding:9px 4px; border-radius:8px; background:transparent; color:var(--muted); font-family:var(--mono); font-size:9px; font-weight:700; letter-spacing:.35px; white-space:nowrap}
+  .mission-tabs button.on{background:var(--panel-2); color:var(--text); box-shadow:0 0 0 1px var(--line)}
+  .mission-overview{display:grid; grid-template-columns:1fr; gap:7px; margin-top:8px}
+  body.main-long .mission-overview{display:none}
+  .mission-card{display:flex; align-items:center; gap:10px; text-align:left; padding:10px 11px; border:1px solid var(--line); border-radius:11px; background:var(--panel); color:var(--text)}
+  .mission-card .mi{width:32px; height:32px; flex:none; display:grid; place-items:center; border-radius:9px; font-family:var(--mono); font-weight:700; background:var(--panel-2)}
+  .mission-card .mc{flex:1; min-width:0}
+  .mission-card .mn{font-family:var(--disp); font-size:12.5px; font-weight:700}
+  .mission-card .ms{font-family:var(--mono); font-size:9px; color:var(--muted); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .mission-card.core{border-color:rgba(0,229,255,.28)} .mission-card.core .mi{color:var(--data)}
+  .mission-card.daily{border-color:rgba(255,61,119,.34)} .mission-card.daily .mi{color:#FF5A91}
+  .mission-card.lottery{border-color:rgba(245,190,65,.36)} .mission-card.lottery .mi{color:#F5BE41}
+
+  /* ═══ 2.8.1 — ALL IS ITS OWN PAGE ═══════════════════════════════════════════
+   * Before this, ALL rendered the entire Long Term dashboard with three decorative
+   * launch cards on top, so the two tabs showed the same screen and ALL answered none
+   * of the questions it exists to answer. ALL now hides the Long Term surface outright
+   * and shows a dedicated overview: what it is worth, what changed, whether anything
+   * needs attention, and one honest line per mission. It summarises the three missions;
+   * it never merges their money or their rules. */
+  #ltSurface{display:contents}
+  #allDashboard{display:none}
+  body.view-all #allDashboard{display:block}
+  body.view-all #ltSurface{display:none}
+  /* The old decorative launch cards are replaced by real mission cards inside ALL. */
+  #missionOverview{display:none}
+  .all-hd{display:flex; align-items:baseline; gap:10px; margin:14px 0 9px; flex-wrap:wrap}
+  .all-hd h2{font-family:var(--disp); font-size:14px; letter-spacing:.4px; margin:0}
+  .all-hd .all-stamp{font-family:var(--mono); font-size:9.5px; color:var(--muted-2); margin-left:auto}
+  .all-snap{border:1px solid var(--line); border-radius:14px; background:var(--panel); padding:14px 15px}
+  .all-snap .all-pv .k{font-family:var(--mono); font-size:9.5px; letter-spacing:.5px; color:var(--muted)}
+  .all-snap .all-pv .v{font-family:var(--disp); font-size:30px; font-weight:700; margin-top:2px; line-height:1.1; word-break:break-word}
+  .all-grid{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; margin-top:13px}
+  .all-grid .g{background:var(--panel-2); border:1px solid var(--line); border-radius:10px; padding:9px 10px; min-width:0}
+  .all-grid .g .k{font-family:var(--mono); font-size:9px; letter-spacing:.4px; color:var(--muted)}
+  .all-grid .g .v{font-family:var(--disp); font-size:14px; font-weight:700; margin-top:3px; overflow-wrap:anywhere}
+  .all-grid .g .v.small{font-size:10.5px; font-weight:600; color:var(--muted); font-family:var(--mono); line-height:1.45}
+  .all-two{display:grid; grid-template-columns:1fr; gap:9px; margin-top:9px}
+  .all-card{border:1px solid var(--line); border-radius:13px; background:var(--panel); padding:13px 14px; min-width:0}
+  .all-card h3{font-family:var(--mono); font-size:9.5px; letter-spacing:.55px; color:var(--muted); margin:0 0 9px}
+  .all-line{display:flex; gap:9px; align-items:flex-start; padding:7px 0; border-top:1px solid var(--line)}
+  .all-line:first-of-type{border-top:0; padding-top:0}
+  .all-line .b{width:6px; height:6px; border-radius:50%; flex:none; margin-top:6px; background:var(--muted-2)}
+  .all-line .x{flex:1; min-width:0; font-size:12px; line-height:1.5}
+  .all-line .x b{font-family:var(--mono); font-size:9.5px; letter-spacing:.4px; color:var(--muted); display:block; margin-bottom:1px}
+  .all-line.up .b{background:var(--act)} .all-line.down .b{background:var(--risk)} .all-line.warn .b{background:var(--watch)}
+  .all-state{display:inline-block; font-family:var(--mono); font-size:10px; font-weight:700; letter-spacing:.6px;
+             padding:5px 10px; border-radius:999px; margin-bottom:10px; border:1px solid var(--line)}
+  .all-state.clear{color:var(--act); border-color:rgba(0,230,150,.4)}
+  .all-state.watch{color:var(--watch); border-color:rgba(255,190,60,.45)}
+  .all-state.action{color:var(--risk); border-color:rgba(255,61,119,.45)}
+  .all-state.missing{color:var(--muted); border-color:var(--line)}
+  .all-missions{display:grid; grid-template-columns:1fr; gap:9px; margin:9px 0 4px}
+  .all-mission{border:1px solid var(--line); border-radius:13px; background:var(--panel); padding:13px 14px; min-width:0}
+  .all-mission .mh{display:flex; align-items:center; gap:9px; margin-bottom:10px}
+  .all-mission .mi{width:28px; height:28px; flex:none; display:grid; place-items:center; border-radius:8px;
+                   font-family:var(--mono); font-size:10px; font-weight:700; background:var(--panel-2)}
+  .all-mission .mt{font-family:var(--disp); font-size:13px; font-weight:700}
+  .all-mission .mv{margin-left:auto; font-family:var(--disp); font-size:14px; font-weight:700; text-align:right; overflow-wrap:anywhere}
+  .all-mission .mrow{display:flex; gap:8px; padding:5px 0; font-size:11.5px; line-height:1.45; border-top:1px solid var(--line)}
+  .all-mission .mrow:first-of-type{border-top:0}
+  .all-mission .mrow .k{font-family:var(--mono); font-size:9px; letter-spacing:.4px; color:var(--muted); flex:none; width:74px; padding-top:2px}
+  .all-mission .mrow .v{flex:1; min-width:0; overflow-wrap:anywhere}
+  .all-mission .go{width:100%; margin-top:11px; padding:9px; border-radius:9px; background:var(--panel-2); color:var(--text);
+                   border:1px solid var(--line); font-family:var(--mono); font-size:9.5px; font-weight:700; letter-spacing:.5px}
+  .all-mission.core{border-color:rgba(0,229,255,.28)} .all-mission.core .mi{color:var(--data)}
+  .all-mission.daily{border-color:rgba(255,61,119,.34)} .all-mission.daily .mi{color:#FF5A91}
+  .all-mission.lottery{border-color:rgba(245,190,65,.36)} .all-mission.lottery .mi{color:#F5BE41}
+  .all-foot{font-family:var(--mono); font-size:9px; color:var(--muted-2); line-height:1.6; margin:10px 0 4px}
+
+  /* ═══ 2.8.1 — LONG TERM: one warning strip, everything secondary collapsed ═══ */
+  .ltwarn{display:flex; gap:9px; align-items:center; margin-top:9px; padding:9px 12px;
+          border:1px solid var(--line); border-radius:11px; background:var(--panel); min-width:0}
+  .ltwarn .k{font-family:var(--mono); font-size:9.5px; font-weight:700; letter-spacing:.55px; color:var(--act); flex:none}
+  .ltwarn .t{font-size:11.5px; color:var(--muted); min-width:0; overflow-wrap:anywhere}
+  .ltwarn.warn .k{color:var(--watch)} .ltwarn.warn{border-color:rgba(255,190,60,.4)}
+  .ltwarn.bad .k{color:var(--risk)}   .ltwarn.bad{border-color:rgba(255,61,119,.42)}
+  .ltmore{margin-top:12px; border:1px solid var(--line); border-radius:13px; background:var(--panel); overflow:hidden}
+  .ltmore>summary{list-style:none; cursor:pointer; padding:12px 14px; display:flex; flex-direction:column; gap:2px}
+  .ltmore>summary::-webkit-details-marker{display:none}
+  .ltmore>summary::after{content:"▾"; position:absolute; right:22px; color:var(--muted); font-size:11px}
+  .ltmore[open]>summary::after{content:"▴"}
+  .ltmore>summary{position:relative}
+  .ltmore .lm-t{font-family:var(--mono); font-size:10px; font-weight:700; letter-spacing:.55px; color:var(--text)}
+  .ltmore .lm-s{font-family:var(--mono); font-size:9px; color:var(--muted-2); line-height:1.5; padding-right:20px}
+  .ltmore-body{padding:0 12px 12px}
+
+  /* LOTTERY: a third visual world — dark aubergine and gold — so it can never be mistaken
+     for either the navy long-term book or the bright Daily sandbox. */
+  .lot-overlay{position:fixed; inset:0; z-index:86; display:none; flex-direction:column; color:#FFF8E8;
+    background:radial-gradient(circle at 90% 0,rgba(139,70,220,.25),transparent 36%),#170B20;
+    padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+  .lot-overlay.open{display:flex}
+  .lot-head{display:flex; align-items:center; gap:10px; padding:13px 16px; color:#1C1022; background:linear-gradient(120deg,#FFD875,#F4A93E 48%,#CB75F6)}
+  .lot-head .t{font-family:var(--disp); font-size:20px; font-weight:700; line-height:1.05}
+  .lot-head .s{font-family:var(--mono); font-size:9px; letter-spacing:.55px; margin-top:4px}
+  .lot-head .x{width:36px; height:36px; flex:none; border-radius:11px; background:rgba(28,16,34,.14); color:#1C1022; font-size:21px}
+  .lot-body{flex:1; overflow-y:auto; width:100%; max-width:760px; margin:0 auto; padding:13px 13px 42px}
+  .lot-body .mission-tabs{border-color:#52315F; background:#21102D}
+  .lot-body .mission-tabs button{color:#AE91B8}.lot-body .mission-tabs button.on{background:#3A2048; color:#FFE3A0; box-shadow:0 0 0 1px #6D477A}
+  .lot-strip{margin:12px 0; padding:10px; border:1px solid #5E3A65; border-radius:12px; color:#D7BEDD; background:#25122F; text-align:center; font-family:var(--mono); font-size:9px; letter-spacing:.45px}
+  .lot-guard{padding:12px 13px; border:1px solid rgba(245,190,65,.55); border-radius:13px; color:#FFE5A1; background:rgba(245,190,65,.09); font-size:12px; line-height:1.45}
+  .lot-guard b{display:block; font-family:var(--mono); font-size:10px; letter-spacing:.9px; margin-bottom:3px}
+  .lot-stats{display:grid; grid-template-columns:repeat(3,1fr); gap:7px; margin:10px 0}
+  .lot-stat{padding:10px 8px; border:1px solid #472B50; border-radius:11px; background:#21102D; text-align:center}
+  .lot-stat .k{font-family:var(--mono); font-size:8px; color:#9E7DA8; letter-spacing:.5px}
+  .lot-stat .v{font-family:var(--mono); font-size:14px; font-weight:700; color:#FFE3A0; margin-top:3px}
+  .lot-card{margin-top:10px; padding:14px; border:1px solid #50315A; border-radius:15px; background:#21102D; box-shadow:0 4px 18px rgba(0,0,0,.18)}
+  .lot-card h2{font-size:14px; color:#FFE3A0}
+  .lot-fields{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px}
+  .lot-field.full{grid-column:1/-1}
+  .lot-field label{display:block; margin-bottom:4px; color:#A989B3; font-family:var(--mono); font-size:8.5px; letter-spacing:.4px; text-transform:uppercase}
+  .lot-field input,.lot-field select,.lot-field textarea{width:100%; border:1px solid #5A3964; border-radius:9px; background:#180B21; color:#FFF8E8; padding:10px; font:12px var(--body)}
+  .lot-field textarea{min-height:70px; resize:vertical}
+  .lot-btn{padding:11px 12px; border-radius:10px; color:#21102D; background:linear-gradient(115deg,#FFD875,#F4A93E); font-weight:700; font-size:12px}
+  .lot-btn.sec{color:#D7BEDD; background:#2D1739; border:1px solid #684775}
+  .lot-btn.bad{color:#FFD3DC; background:#482035; border:1px solid #873652}
+  .lot-actions{display:flex; flex-wrap:wrap; gap:7px; margin-top:10px}
+  .lot-ticket{margin-top:8px; padding:12px; border:1px solid #43264D; border-radius:12px; background:#1A0C24}
+  .lot-ticket .top{display:flex; align-items:flex-start; gap:8px}
+  .lot-ticket .sym{font-family:var(--mono); font-size:17px; font-weight:700; color:#FFE3A0}
+  .lot-ticket .co{font-size:11px; color:#A98CB1; margin-top:1px}
+  .lot-status{margin-left:auto; flex:none; padding:4px 7px; border-radius:20px; background:#382044; color:#E0C5E6; font-family:var(--mono); font-size:8px; font-weight:700}
+  .lot-status.active{background:#3F341B; color:#FFE29A}.lot-status.written_off{background:#47202E;color:#FFBACC}.lot-status.exited{background:#17382B;color:#9FF0C5}
+  .lot-meta{display:flex; flex-wrap:wrap; gap:7px 12px; margin-top:8px; color:#BA9FC2; font-family:var(--mono); font-size:9px}
+  .lot-copy{margin-top:8px; color:#D5BEDB; font-size:11.5px; line-height:1.45}
+  .lot-empty{padding:20px 10px; text-align:center; color:#9E7DA8; font-size:12px}
+  .lot-note{margin-top:9px; color:#A98CB1; font-size:11px; line-height:1.45}.lot-note.bad{color:#FF9EB5}.lot-note.good{color:#8CE9B8}
+  @media(max-width:420px){.mission-tabs button{font-size:8px}.lot-fields{grid-template-columns:1fr}.lot-field.full{grid-column:auto}.lot-stats{grid-template-columns:1fr 1fr}.lot-stat:last-child{grid-column:1/-1}}
   /* ── WILDCARD: a FULL-SCREEN TAKEOVER, and a DELIBERATELY OPPOSITE VISUAL WORLD ────
      The dashboard is dark navy. Wildcard is light and bright. That is the whole point:
      one glance, from across the room, tells you which mission you are in. While it is
@@ -472,21 +606,33 @@
 
   header.top{grid-column:1/-1; grid-row:1; padding:0 0 4px; align-items:center}
   header.top h1{font-size:26px}
+  .mission-shell{margin-top:2px}
+  .mission-tabs{max-width:620px}
+  .mission-overview{grid-template-columns:repeat(3,1fr)}
+  .all-two{grid-template-columns:1fr 1fr}
+  .all-missions{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .all-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+  #allDashboard{grid-column:1/-1}
+  .ltmore{grid-column:1/-1}
+  .ltmore-body{display:grid; grid-template-columns:minmax(0,62fr) minmax(0,38fr);
+               column-gap:18px; row-gap:14px; align-content:start; align-items:start}
+  .ltmore-body > *{grid-column:1/-1; grid-row:auto; margin-top:0}
+  .ltmore-body #trendCard, .ltmore-body #dangerCard{grid-column:1}
+  .ltmore-body #alertsCard, .ltmore-body #oppCard{grid-column:2}
 
   /* ── the command block: what I own, what to do, and the controls, in one screen ── */
   .summary       {grid-column:1; grid-row:2}
   .cmdbar        {grid-column:1; grid-row:3}
-  .meters        {grid-column:1; grid-row:4; margin-top:0}
-  .chips         {grid-column:1; grid-row:5; margin-top:0}
-  .guide         {grid-column:2; grid-row:2 / span 4; margin-top:0}
+  .ltwarn        {grid-column:1; grid-row:4; margin-top:0}
+  .guide         {grid-column:2; grid-row:2 / span 3; margin-top:0}
 
   /* ONE dominant instruction. */
   .guide .hd h2{font-size:16px}
   .gcard .gmain{font-size:21px}
 
   /* ── supporting evidence, demoted. Same data, no second headline. ── */
-  #convictionGate{grid-column:1; grid-row:6}
-  .tl            {grid-column:2; grid-row:6; margin-top:0; align-items:center}
+  #convictionGate{grid-column:1; grid-row:5}
+  .tl            {grid-column:2; grid-row:5; margin-top:0; align-items:center}
   /* The traffic light stops being a second giant recommendation and becomes a status strip.
      Nothing about how it is calculated changes — only how loudly it speaks. */
   .tl .lamp{flex-direction:row; width:auto; padding:0 13px; gap:6px; background:transparent}
@@ -516,7 +662,7 @@
      The card spans the full width and becomes its own two-column grid, so the holdings
      table gets the width it deserves and the donut sits beside it instead of under it.
      No duplicated markup, no second data path, and below 1100px the card is untouched. */
-  #pfCard{grid-column:1/-1; grid-row:7; display:grid; align-items:start;
+  #pfCard{grid-column:1/-1; grid-row:6; display:grid; align-items:start;
     grid-template-columns:minmax(0,1fr) 330px; column-gap:22px}
   #pfCard > h2, #pfCard > .card-note, #pfCard > table, #pfCard > .means{grid-column:1}
   /* the donut and its legend stay SIDE BY SIDE inside the right column — stacking them
@@ -571,18 +717,90 @@
     <span class="num" id="buildChip" style="font-size:10px;font-family:var(--mono);color:var(--muted-2)" title="Frontend / backend build. A mismatch means one of them is a stale deployment.">FE — · API —</span>
   </div>
   <button class="burger" id="burger" aria-label="Open menu">☰</button>
+  <div class="mission-shell">
+    <div class="mission-tabs" aria-label="Money mission">
+      <button class="on" data-mission="all">ALL</button>
+      <button data-mission="long">LONG TERM</button>
+      <button data-mission="daily">DAILY</button>
+      <button data-mission="lottery">LOTTERY</button>
+    </div>
+    <div class="mission-overview" id="missionOverview">
+      <button class="mission-card core" data-mission="long"><span class="mi">LT</span><span class="mc"><span class="mn">Long Term</span><span class="ms">BHD 500 → ISAC.L · ON POLICY</span></span><span>›</span></button>
+      <button class="mission-card daily" data-mission="daily"><span class="mi">D</span><span class="mc"><span class="mn">Daily</span><span class="ms">BHD 50 pot · one trade/day · Wildcard</span></span><span>›</span></button>
+      <button class="mission-card lottery" data-mission="lottery"><span class="mi">L</span><span class="mc"><span class="mn">Lottery</span><span class="ms">~$100/ticket · one new execution/month</span></span><span>›</span></button>
+    </div>
+  </div>
 </header>
 
 <nav class="navmenu" id="navmenu">
-  <button id="navDash">Dashboard</button>
+  <button id="navDash">Main dashboard</button>
+  <button id="navLong">Long Term</button>
+  <button id="navWildcard"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" style="vertical-align:-2px;margin-right:6px"><path fill="currentColor" d="M13 2 4 14h6l-1 8 9-12h-6l1-8z"/></svg>Daily · Wildcard</button>
+  <button id="navLottery">✦ Lottery Tickets</button>
+  <div class="navsep"></div>
   <button id="navMarkets">Markets &amp; data</button>
   <button id="navChat">Chat with AI</button>
-  <button id="navWildcard"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" style="vertical-align:-2px;margin-right:6px"><path fill="currentColor" d="M13 2 4 14h6l-1 8 9-12h-6l1-8z"/></svg>Wildcard (experimental)</button>
   <div class="navsep"></div>
   <button id="navEdit">✎ Edit portfolio</button>
   <button id="navSettings">⚙ Settings &amp; market data</button>
 </nav>
 
+<!-- ═══ ALL — A REAL OVERVIEW, NOT THE LONG TERM DASHBOARD ═════════════════════
+ * Answers four questions and nothing else: what is it worth, what changed, does
+ * anything need attention, and what is each mission doing. No Long Term controls,
+ * no holdings table, no committee, no diagnostics, and NO trade instruction for
+ * Daily or Lottery — those belong on their own screens, where their rules are
+ * on-screen with them. Every figure here is stored data or an explicit refusal. -->
+<div id="allDashboard" aria-label="Overview of all three missions">
+  <div class="all-hd"><h2>OVERVIEW</h2><span class="all-stamp" id="allStamp">—</span></div>
+
+  <section class="all-snap">
+    <div class="all-pv"><div class="k">LONG TERM PORTFOLIO VALUE</div><div class="v" id="allPv">—</div></div>
+    <div class="all-grid">
+      <div class="g"><div class="k">TODAY</div><div class="v" id="allToday">—</div></div>
+      <div class="g"><div class="k">7 DAYS</div><div class="v" id="all7d">—</div></div>
+      <div class="g"><div class="k">TOTAL P/L</div><div class="v" id="allTot">—</div></div>
+      <div class="g"><div class="k">LAST REFRESH</div><div class="v" id="allConf">—</div></div>
+    </div>
+  </section>
+
+  <div class="all-two">
+    <section class="all-card"><h3>WHAT CHANGED?</h3><div id="allChanged"></div></section>
+    <section class="all-card"><h3>ANYTHING NEED ATTENTION?</h3>
+      <div class="all-state" id="allAttnState">DATA MISSING</div><div id="allAttn"></div></section>
+  </div>
+
+  <div class="all-missions">
+    <section class="all-mission core">
+      <div class="mh"><span class="mi">LT</span><span class="mt">Long Term</span><span class="mv" id="amLtVal">—</span></div>
+      <div class="mrow"><span class="k">DIRECTION</span><span class="v" id="amLtDir">—</span></div>
+      <div class="mrow"><span class="k">DO NOW</span><span class="v" id="amLtAct">—</span></div>
+      <div class="mrow"><span class="k">POLICY</span><span class="v" id="amLtPol">BHD 500 → ISAC.L</span></div>
+      <div class="mrow"><span class="k">ALERT</span><span class="v" id="amLtAlert">No policy exception</span></div>
+      <button class="go" data-mission="long">OPEN LONG TERM</button>
+    </section>
+    <section class="all-mission daily">
+      <div class="mh"><span class="mi">D</span><span class="mt">Daily</span><span class="mv" id="amDlPot">BHD 50</span></div>
+      <div class="mrow"><span class="k">TODAY</span><span class="v" id="amDlState">—</span></div>
+      <div class="mrow"><span class="k">VERDICT</span><span class="v" id="amDlVerdict">—</span></div>
+      <div class="mrow"><span class="k">RESULT</span><span class="v" id="amDlResult">—</span></div>
+      <button class="go" data-mission="daily">OPEN DAILY</button>
+    </section>
+    <section class="all-mission lottery">
+      <div class="mh"><span class="mi">L</span><span class="mt">Lottery</span><span class="mv" id="amLoSlot">—</span></div>
+      <div class="mrow"><span class="k">ACTIVE</span><span class="v" id="amLoActive">—</span></div>
+      <div class="mrow"><span class="k">AT RISK</span><span class="v" id="amLoRisk">—</span></div>
+      <div class="mrow"><span class="k">VALUE</span><span class="v" id="amLoValue">—</span></div>
+      <div class="mrow"><span class="k">WARNING</span><span class="v" id="amLoWarn">—</span></div>
+      <button class="go" data-mission="lottery">OPEN LOTTERY</button>
+    </section>
+  </div>
+
+  <div class="all-foot">THREE SEPARATE MISSIONS · SEPARATE CAPITAL · SEPARATE RULES · ALL SUMMARISES, IT DOES NOT COMBINE<br>
+    NO TRADE IS EVER PLACED FROM THIS PAGE. DAILY AND LOTTERY INSTRUCTIONS LIVE ON THEIR OWN SCREENS.</div>
+</div>
+
+<div id="ltSurface">
 <!-- PORTFOLIO SUMMARY -->
 <div class="summary">
   <div class="lab">Portfolio Value</div>
@@ -638,6 +856,36 @@
 </div>
 </div><!-- /.cmdbar -->
 
+<!-- IDIOT'S GUIDE -->
+<div class="guide">
+  <div class="hd"><h2>WHAT DO I DO NOW?</h2><span class="stamp" id="guideStamp">—</span></div>
+  <div class="bd" id="guideBody"></div>
+</div>
+
+<!-- ONE warning strip. Either NO POLICY EXCEPTION, or the single most important
+     real warning. Never a list — a list of warnings is how the important one hides. -->
+<div class="ltwarn" id="ltWarnStrip"><span class="k" id="ltWarnK">—</span><span class="t" id="ltWarnT"></span></div>
+
+<!-- PORTFOLIO -->
+<section class="card" id="pfCard">
+  <h2><span class="dot" style="background:var(--data)"></span> PORTFOLIO (eToro)</h2>
+  <div class="card-note" id="pfNote">Manual holdings. Connect a price source in Settings for live values.</div>
+  <table><thead><tr><th>Holding</th><th>Value</th><th>P/L</th><th>Now %</th></tr></thead><tbody id="pfBody"></tbody></table>
+  <div class="pie-row"><div class="pie"><div id="portfolioPie"></div></div><div class="pie-legend" id="pieLegend"></div></div>
+  <div id="allocBlock" style="margin-top:6px"><div class="eyebrow" style="margin:14px 0 8px">Composition — descriptive</div><div class="alloc" id="allocWrap"></div></div>
+  <div class="means"><b>What this means for Andrew</b><span id="pfMeans">—</span></div>
+</section>
+
+
+<!-- ═══ MORE DETAIL ═══════════════════════════════════════════════════════════
+ * Nothing below is deleted or disconnected — every render function still writes to
+ * exactly the same ids. The section is COLLAPSED by default on desktop and phone
+ * because Long Term has to answer four questions quickly, and twelve cards of
+ * supporting evidence is how the one authoritative action gets lost. The open/closed
+ * preference is restored from localStorage AFTER boot, never during it. -->
+<details class="ltmore" id="ltMore">
+  <summary><span class="lm-t">MORE DETAIL · ANALYSIS &amp; DIAGNOSTICS</span><span class="lm-s">Gauges, trend, alerts, markets, deployment, committee, journal, diagnostics</span></summary>
+  <div class="ltmore-body">
 <!-- METERS -->
 <div class="meters">
   <div class="meter"><div class="k">Concentration</div><div class="gz" id="gHealth"></div><div class="v" id="vHealth">—</div></div>
@@ -707,15 +955,6 @@
   <div class="means"><b>What this means for Andrew</b><span id="oppMeans">—</span></div>
 </section>
 
-<!-- PORTFOLIO -->
-<section class="card" id="pfCard">
-  <h2><span class="dot" style="background:var(--data)"></span> PORTFOLIO (eToro)</h2>
-  <div class="card-note" id="pfNote">Manual holdings. Connect a price source in Settings for live values.</div>
-  <table><thead><tr><th>Holding</th><th>Value</th><th>P/L</th><th>Now %</th></tr></thead><tbody id="pfBody"></tbody></table>
-  <div class="pie-row"><div class="pie"><div id="portfolioPie"></div></div><div class="pie-legend" id="pieLegend"></div></div>
-  <div id="allocBlock" style="margin-top:6px"><div class="eyebrow" style="margin:14px 0 8px">Composition — descriptive</div><div class="alloc" id="allocWrap"></div></div>
-  <div class="means"><b>What this means for Andrew</b><span id="pfMeans">—</span></div>
-</section>
 
 <!-- DEPLOYMENT ENGINE (was: DRY POWDER) -->
 <section class="card" id="dpCard">
@@ -756,11 +995,6 @@
   <div id="packetWrap"></div>
 </section>
 
-<!-- IDIOT'S GUIDE -->
-<div class="guide">
-  <div class="hd"><h2>WHAT DO I DO NOW?</h2><span class="stamp" id="guideStamp">—</span></div>
-  <div class="bd" id="guideBody"></div>
-</div>
 
 <!-- DECISION JOURNAL -->
 <section class="card" id="journalCard">
@@ -777,6 +1011,11 @@
   <div class="hint" style="margin-top:9px">Live = fetched now · Manual = you entered · Calculated = derived from inputs · Stale = older than 4h · Missing = no value. The scores (Market Danger, Opportunity, Deployment, Health) are always <b>calculated</b> from the inputs above — never placeholders.</div>
   <div id="sysCheckResult"></div>
 </section>
+
+  </div>
+</details>
+
+</div><!-- /#ltSurface -->
 
 <footer>
   Investing Command Centre runs as a separate app from Andy OS — if a data source fails it degrades but does not crash, and never shows stale data as live.<br>
@@ -871,6 +1110,12 @@
     <button class="x" id="wcClose" aria-label="Leave Wildcard">×</button>
   </div>
   <div class="wc-body">
+    <div class="mission-tabs" aria-label="Money mission">
+      <button data-mission="all">ALL</button>
+      <button data-mission="long">LONG TERM</button>
+      <button class="on" data-mission="daily">DAILY</button>
+      <button data-mission="lottery">LOTTERY</button>
+    </div>
     <div class="wc-strip">BHD 50 POT · ONE TRADE/DAY · LONG ONLY · NO AUTO EXECUTION</div>
 
     <!-- Step 0. Static markup, not generated, so it exists before any script runs. -->
@@ -899,6 +1144,62 @@
         <b>NONE is a normal and desirable result.</b> One trade per day maximum, long shares only,
         BHD50 pot. Anything that needs real price history stays blank and says so rather than being guessed.
       </div>
+    </details>
+  </div>
+</div>
+
+<!-- LOTTERY TICKETS — a separate, manual registry. No AI GO and no broker execution. -->
+<div class="lot-overlay" id="lotOverlay">
+  <div class="lot-head">
+    <div style="flex:1">
+      <div class="t">✦ LOTTERY TICKETS</div>
+      <div class="s">ASYMMETRIC LONG-SHOT REGISTRY · NOT CORE · NOT DAILY</div>
+    </div>
+    <button class="x" id="lotClose" aria-label="Leave Lottery Tickets">×</button>
+  </div>
+  <div class="lot-body">
+    <div class="mission-tabs" aria-label="Money mission">
+      <button data-mission="all">ALL</button>
+      <button data-mission="long">LONG TERM</button>
+      <button data-mission="daily">DAILY</button>
+      <button class="on" data-mission="lottery">LOTTERY</button>
+    </div>
+    <div class="lot-strip">AROUND $100/TICKET · MAX ONE NEW EXECUTION/MONTH · LONG ORDINARY SHARES · NO TOP-UPS</div>
+    <div class="lot-guard"><b>NO AI GO</b>This first version records watchlist, research decisions, entries and exits. It does not recommend a ticket. Activation is your manual decision after research.</div>
+    <div class="lot-stats">
+      <div class="lot-stat"><div class="k">THIS MONTH</div><div class="v" id="lotMonth">—</div></div>
+      <div class="lot-stat"><div class="k">ACTIVE</div><div class="v" id="lotActive">—</div></div>
+      <div class="lot-stat"><div class="k">CAPITAL AT RISK</div><div class="v" id="lotRisk">—</div></div>
+    </div>
+
+    <section class="lot-card">
+      <h2>ADD TO THE REGISTRY</h2>
+      <div class="lot-note">Create a Watchlist or Candidate record. ACTIVE can only be reached later, with entry details and a free monthly slot.</div>
+      <form id="lotCreateForm">
+        <div class="lot-fields">
+          <div class="lot-field"><label>Ticker</label><input id="lotTicker" maxlength="12" required autocomplete="off" spellcheck="false"></div>
+          <div class="lot-field"><label>Company</label><input id="lotCompany" maxlength="120" required></div>
+          <div class="lot-field"><label>Broker</label><select id="lotBroker"><option>eToro</option><option>Trading 212</option></select></div>
+          <div class="lot-field"><label>State</label><select id="lotState"><option>WATCHLIST</option><option>CANDIDATE</option></select></div>
+          <div class="lot-field"><label>Planned amount (USD)</label><input id="lotPlanned" type="number" min="1" step="0.01" value="100"></div>
+          <div class="lot-field full"><label>Thesis</label><textarea id="lotThesis" placeholder="Why could the upside be asymmetric?"></textarea></div>
+          <div class="lot-field full"><label>Failure condition</label><textarea id="lotFailure" placeholder="What evidence means the thesis is broken?"></textarea></div>
+          <div class="lot-field full"><label>Long-term objective</label><textarea id="lotObjective" placeholder="What would success look like over 5+ years?"></textarea></div>
+          <div class="lot-field full"><label>Notes</label><textarea id="lotNotes" placeholder="Sources checked, dates, open questions…"></textarea></div>
+        </div>
+        <div class="lot-actions"><button class="lot-btn" type="submit" id="lotCreate">SAVE TO REGISTRY</button></div>
+      </form>
+      <div class="lot-note" id="lotStatus">Connect the backend to load the registry.</div>
+    </section>
+
+    <section class="lot-card">
+      <div style="display:flex;align-items:center;gap:8px"><h2 style="flex:1">TICKET REGISTRY</h2><button class="lot-btn sec" id="lotReload">REFRESH</button><button class="lot-btn sec" id="lotPrices">LIVE PRICES</button></div>
+      <div id="lotList"><div class="lot-empty">No tickets loaded.</div></div>
+    </section>
+
+    <details class="lot-card">
+      <summary style="cursor:pointer;color:#FFE3A0;font-weight:700">RULES / WHY SEPARATE?</summary>
+      <div class="lot-copy">Each ticket is assumed capable of going to zero. One deliberate buy after research, normally held for five years or more. Sell only when the thesis breaks, a predefined failure condition occurs, or the long-term objective is reached. Never average down. Individual ordinary shares only — no ETFs, CFDs, leverage, options, shorting or crypto. A registry can accumulate many tickets; the monthly limit applies to new executions, not total holdings.</div>
     </details>
   </div>
 </div>
@@ -1002,7 +1303,7 @@ function defaults(){return{
  * EXPECTED_API = the backend build this frontend was written against.
  * The chip in the header shows "FE x · API y" and turns amber on mismatch, so a stale
  * GitHub Pages page or a stale Render backend is visible at a glance instead of silent. */
-const FE_VERSION="2.7.2", EXPECTED_API="2.7.2";
+const FE_VERSION="2.8.1", EXPECTED_API="2.8.1";
 let API_VERSION_SEEN=null;
 
 const POLICY=Object.freeze({monthlyPlanBhd:500, destination:"ISAC.L", status:"ON POLICY",
@@ -1189,7 +1490,36 @@ function wcSetStatus(msg, tone){
 }
 function wcBase(){ return S.backendUrl ? S.backendUrl.replace(/\/+$/,"") : null; }
 function wcLabel(seat){ return (WC_SEATS&&WC_SEATS[seat]&&WC_SEATS[seat].label) || (WC_SHORT[seat]||seat); }
-function wcDone(seat){ return WC_RESP.some(r=>r.seat===seat && r.status==="ok"); }
+/* Is a stored synthesis row actually a DECISION?
+   A row saved before the contract existed is still status:"ok" but may hold prose. Treating
+   it as done completes the run and renders NO VERDICT with no retry — the original defect
+   arriving through history. The server revalidates too; this is the same rule on the screen,
+   so a legacy row cannot look finished here either. Deliberately checks only what the card
+   actually needs — a real verdict — rather than duplicating the server's full contract. */
+/* THE DECISION OBJECT FOR A ROW — from `parsed` when the server sent it, otherwise parsed
+   from the raw text.
+
+   THIS IS THE ACTUAL FIX for the NO VERDICT defect, not the merge below it. The backend's
+   seat-response projection omitted the `parsed` column, so a perfectly good decision arrived
+   with nothing to read and the card printed NO VERDICT. Reading `r.parsed` and stopping there
+   made the page depend on one column of one projection. It no longer does: the raw reply is
+   always present, and a decision that is in the row at all will be found. */
+function wcDecisionOf(r){
+  if(!r) return null;
+  if(r.parsed && typeof r.parsed==="object") return r.parsed;
+  if(r.raw_response){ try{ const p=JSON.parse(r.raw_response); if(p&&typeof p==="object") return p; }catch(_){} }
+  return null;
+}
+function wcSynthUsable(r){
+  if(!r || r.status!=="ok") return false;
+  const p=wcDecisionOf(r);
+  const v=p&&p.verdict?String(p.verdict).trim().toUpperCase():"";
+  return v==="GO"||v==="NO-GO"||v==="NONE";
+}
+function wcDone(seat){
+  if(seat==="synthesis") return WC_RESP.some(wcSynthUsable);
+  return WC_RESP.some(r=>r.seat===seat && r.status==="ok");
+}
 
 /* A step is finished when its own condition is met — for REVIEW that is the lock, for every
    other step it is every seat answering. Derived from stored state, never a counter. */
@@ -1210,7 +1540,7 @@ function wcMode(seat){
 function wcStat(seat){
   if(wcDone(seat))              return {k:"ready", t:"READY"};
   if(WC_UI[seat]==="running")   return {k:"run",   t:"RUNNING"};
-  if(WC_UI[seat]==="failed")    return {k:"fail",  t:"FAILED — USE MANUAL"};
+  if(WC_UI[seat]==="failed")    return {k:"fail",  t:(WC_FAIL_BADGE[WC_UI[seat+":failCode"]]||"FAILED — USE MANUAL")};
   return {k:"wait", t:"WAITING"};
 }
 
@@ -1408,9 +1738,10 @@ function wcCell(k,v){
     + esc(v||"UNAVAILABLE")+'</div></div>';
 }
 function wcDecisionHtml(){
-  const rows=WC_RESP.filter(function(r){return r.seat==="synthesis"&&r.status==="ok";});
+  // Only USABLE decisions render. An OK row that is not a decision leaves the step open.
+  const rows=WC_RESP.filter(function(r){return r.seat==="synthesis"&&wcSynthUsable(r);});
   const r=rows.length?rows[rows.length-1]:null;
-  const p=(r&&r.parsed)||null;
+  const p=wcDecisionOf(r);
   const st=wcStat("synthesis");
 
   /* NO "FINAL BLOCKED" BRANCH HERE, DELIBERATELY.
@@ -1424,20 +1755,38 @@ function wcDecisionHtml(){
    * tradeIncomplete when either analysis is missing, allowIncomplete cannot bypass it, and
    * wcCopyPrompt surfaces that refusal verbatim. That path is exercised by the API tests. */
   if(!r){
+    /* THE DECISION CARD OBEYS THE SAME RULES AS EVERY OTHER SEAT.
+     *
+     * It used to print GET THE DECISION unconditionally — never consulting wcMode() or
+     * autoAvailable, unlike wcCardHtml(). So with no Gemini key it offered AUTO anyway, and
+     * no terminal failure could actually remove the button. The failure matrix was correct
+     * on the ordinary seat cards and quietly bypassed on the one card that decides.
+     *
+     * Same three inputs as wcCardHtml, no second copy of the matrix: the seat's own
+     * metadata, wcMode(), and WC_FAIL_TERMINAL through the recorded failCode. */
+    const d=(WC_SEATS&&WC_SEATS.synthesis)||{};
+    const mode=wcMode("synthesis"), failed=WC_UI.synthesis==="failed", running=WC_UI.synthesis==="running";
+    const canAuto = mode==="auto" && !!d.autoAvailable;
+    /* MANUAL appears once AUTO has failed, or whenever AUTO is not on offer at all —
+       otherwise a manual-only chair would have no way to be answered. Before that it stays
+       hidden, so step 4 is not a sixth thing to copy and paste. */
+    const showManual = failed || !canAuto;
     let h='<div class="wc-dec"><div class="verdict pend">AWAITING FINAL DECISION</div>'
       + '<div class="wc-note" style="text-align:center">Nothing is decided until the synthesis has run. NONE stays a valid outcome.</div></div>';
     h+='<div class="wc-card" id="wcSeat_synthesis"><div class="hd"><div class="nm">FINAL<div class="sb">DECIDE</div></div>'
-      + '<span class="wc-badge '+st.k+'">'+esc(st.t)+'</span></div><div class="wc-btnrow">'
-      + '<button class="wc-btn go" data-wc-auto="synthesis">GET THE DECISION</button></div>';
-    /* COPY/PASTE is exposed ONLY once AUTO has actually failed — otherwise step 4 becomes
-       a sixth thing to copy and paste, which is the whole complaint. */
-    if(WC_UI.synthesis==="failed"){
+      + '<span class="wc-badge '+st.k+'">'+esc(st.t)+'</span></div>';
+    if(canAuto){
+      h+='<div class="wc-btnrow"><button class="wc-btn go" data-wc-auto="synthesis"'
+       + (running?' disabled':'')+'>GET THE DECISION</button></div>';
+    }
+    if(showManual){
       h+='<div class="wc-btnrow"><button class="wc-btn sec" data-wc-copy="synthesis">COPY SYNTHESIS PROMPT</button>'
        + '<button class="wc-btn sec" data-wc-paste="synthesis">PASTE RESPONSE</button></div>'
        + '<textarea class="wc-ta" data-wc-box="synthesis" placeholder="Paste the whole reply here, then press SAVE."></textarea>'
        + '<div class="wc-btnrow" style="display:none" data-wc-save-row="synthesis">'
        +   '<button class="wc-btn" data-wc-save="synthesis">SAVE</button></div>';
     }
+    if(!canAuto && !d.autoAvailable) h+='<div class="wc-note">No API key for the chair, so the final decision is manual.</div>';
     return h+'</div>';
   }
 
@@ -1490,26 +1839,86 @@ async function wcCreateRun(){
   }finally{ b.disabled=false; b.textContent=label; }
 }
 
-/* AUTO. The endpoint that actually calls the provider is the NEXT build step, so this
- * currently cannot succeed — and it says exactly that rather than reporting a failure it
- * did not have. Either way the behaviour you asked for is the behaviour you get: AUTO is
- * tried first, and the moment it does not work MANUAL appears in its place. */
+/* AUTO. Calls the server, which chooses the provider and model from its own metadata and
+ * enforces every prerequisite using the same prompt builder the manual path uses. Nothing
+ * here places a trade — it asks a text model a question and stores the reply. */
+const WC_FAIL_BADGE = {
+  rate_limited:'QUOTA REACHED — MANUAL', no_api_key:'NO KEY — MANUAL', auth_failed:'KEY REJECTED — MANUAL',
+  timeout:'TIMED OUT — RETRY', empty_reply:'EMPTY — RETRY', provider_error:'PROVIDER ERROR',
+  route_unavailable:'API NOT DEPLOYED', in_flight:'ALREADY RUNNING', store_unreachable:'STORE DOWN',
+  /* A reply arrived and was not a decision. RETRYABLE on purpose: asking again is exactly
+     the right response to a model that answered in prose. */
+  invalid_reply:'BAD FORMAT — RETRY',
+  missing_prerequisite:'BLOCKED — MISSING EVIDENCE', needs_lock:'BLOCKED — NOT LOCKED',
+  trade_incomplete:'BLOCKED — NEEDS BOTH', manual_only:'MANUAL ONLY'
+};
+
+/* WHICH FAILURES END AUTO FOR THIS SEAT, AND WHICH DO NOT.
+ *
+ * Every failure used to force the seat into manual mode, which REMOVES the RUN button. So a
+ * badge reading "TIMED OUT — RETRY" told the owner to retry while deleting the only control
+ * that could. The badge and the buttons were saying opposite things.
+ *
+ * Terminal here means "pressing RUN again cannot possibly work until something outside this
+ * page changes": no key, a rejected key, the day's quota spent, the route not deployed, or a
+ * seat that is manual by ruling. Those switch to manual, and their badges now say so.
+ * Everything else — a timeout, an empty reply, a provider blip, a store outage, a missing
+ * prerequisite — keeps RUN on the card, because retrying is exactly the right next action. */
+const WC_FAIL_TERMINAL = { no_api_key:1, auth_failed:1, rate_limited:1, route_unavailable:1, manual_only:1 };
+
 async function wcAuto(seat){
   const base=wcBase(); if(!base) return;
   if(!WC_RUN||!WC_RUN.id){ wcSetStatus("Create a run first.","bad"); return; }
+  /* Client-side double-tap guard. The server has its own, but stopping the second request
+     before it leaves means a re-render or an impatient tap never spends quota at all. */
+  if(WC_UI[seat]==="running") return;
+  delete WC_UI[seat+":failCode"];
   WC_UI[seat]="running"; wcRender();
   try{
-    await apiJson(base+"/api/wildcard/seat/run",{method:"POST",headers:{"Content-Type":"application/json"},
+    const j = await apiJson(base+"/api/wildcard/seat/run",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({runId:WC_RUN.id, seat})});
     delete WC_UI[seat];
-    await wcRefresh();
-    wcSetStatus("Saved "+(WC_SHORT[seat]||seat)+"'s answer automatically.","good");
+    /* MERGE, NEVER REPLACE. Refreshing from the server is right, but this line used to read
+       WC_RUN=j.run, which swaps the whole identity of the current run for whatever fields
+       that one response happened to carry. When the route's SELECT omitted `id`, the page
+       silently lost the run id after the first successful seat and every later seat said
+       "Create a run first." The server now returns the complete row; merging means a thin
+       response can never take the id away again, on this route or any future one. */
+    if(j.run) WC_RUN=Object.assign({},WC_RUN||{},j.run);
+    if(j.seatResponses) WC_RESP=j.seatResponses; if(j.seats) WC_SEATS=j.seats;
+    /* THE SAVED ROW IS AUTHORITATIVE FOR ITSELF.
+       The reread that produces seatResponses can fail (it is wrapped in a catch server-side
+       and falls back to the PRE-save list), and it once omitted the `parsed` column entirely
+       — which stored a perfectly good decision and then rendered NO VERDICT from a row that
+       had no parsed fields. Merging j.saved means the answer just written can never be lost
+       or downgraded by a reread that went wrong. */
+    if(j.saved && j.saved.id){
+      const i=WC_RESP.findIndex(function(r){return r.id===j.saved.id;});
+      if(i>=0) WC_RESP[i]=Object.assign({},WC_RESP[i],j.saved); else WC_RESP=WC_RESP.concat([j.saved]);
+    }
+    wcRender();
+    if(j.alreadyComplete){
+      wcSetStatus((WC_SHORT[seat]||seat)+" already had a successful answer — nothing was called again.","good");
+    }else{
+      wcSetStatus((WC_SHORT[seat]||seat)+" answered via "+esc(j.providerUsed||"api")
+        +(j.modelUsed?" ("+esc(j.modelUsed)+")":"")+(j.usedFallback?" — fallback model":"")
+        /* A rejected schema is a real change in how the answer was produced. Say so. */
+        +(j.schemaRejected?" — NOTE: the provider refused the structured-output setting, so the reply was checked against the contract rather than constrained by it":"")+".","good");
+    }
   }catch(e){
-    WC_UI[seat]="failed"; WC_UI[seat+":mode"]="manual"; wcRender();
-    const notBuilt = e && (e.status===404 || e.status===405);
-    wcSetStatus(notBuilt
-      ? "Running the seats automatically is not wired up yet — that is the next build step. Use COPY PROMPT / PASTE ANSWER for now."
-      : (WC_SHORT[seat]||seat)+" failed automatically ("+wcErr(e)+"). Manual is now open below.","bad");
+    const b=(e&&e.body)||{};
+    /* 404 means the route genuinely is not deployed — a different problem from a provider
+       failing, and it must not be reported as one. */
+    const code = b.failCode || (e&&e.status===404 ? "route_unavailable"
+                : e&&e.status===405 ? "route_unavailable" : "provider_error");
+    WC_UI[seat]="failed"; WC_UI[seat+":failCode"]=code;
+    /* Only a terminal failure takes AUTO away. A retryable one leaves RUN on the card so the
+       badge and the buttons agree — MANUAL is always available either way. */
+    if(WC_FAIL_TERMINAL[code]) WC_UI[seat+":mode"]="manual";
+    wcRender();
+    wcSetStatus(code==="route_unavailable"
+      ? "The automatic route is not on the deployed backend yet. Upload server.js, or use COPY PROMPT / PASTE ANSWER."
+      : (b.note || b.error || wcErr(e)), "bad");
   }
 }
 
@@ -1596,6 +2005,9 @@ async function wcSaveResponse(seat){
     const b=e&&e.body;
     if(b&&b.promptLineageRequired) wcSetStatus("Not saved. "+(b.note||"This seat's answer needs the exact prompt it was given.")+" Press COPY PROMPT, then paste and save again.","bad");
     else if(b&&b.locked) wcSetStatus("This run's evidence is already locked, so nothing was changed. Replacements must happen before locking.","bad");
+    /* A pasted reply that is not a decision. Nothing was stored, so the paste box still has
+       the text — say what was wrong rather than a generic failure, and keep the step open. */
+    else if(b&&b.failCode==="invalid_reply") wcSetStatus("Not saved — "+(b.reason||"that reply was not a usable decision")+". The required format is at the end of the prompt. Nothing was lost; correct it and save again.","bad");
     else wcSetStatus("Couldn't save: "+wcErr(e),"bad");
   }
 }
@@ -1619,13 +2031,326 @@ async function wcSaveResponse(seat){
     else if(sv) wcSaveResponse(sv);
   });
   const d=$("wcDebate"); if(d) d.onclick=wcCreateRun;
-  const x=$("wcClose"); if(x) x.onclick=wcClose;
+  const x=$("wcClose"); if(x) x.onclick=function(){setMissionView("all");};
 })();
 
 /* Open/close. Leaving Wildcard returns you to the dashboard entirely — there is no state in
  * which both are on screen. */
 function wcOpen(){ const o=$("wcOverlay"); if(!o)return; o.classList.add("open"); document.body.style.overflow="hidden"; wcLoadSeats(); }
 function wcClose(){ const o=$("wcOverlay"); if(o)o.classList.remove("open"); document.body.style.overflow=""; }
+
+
+/* ═══════════ 2.8.1 — THE "ALL" OVERVIEW ═══════════════════════════════════════
+ * Reads only what is already stored. Where a figure cannot be supported it says which
+ * figure is missing and why — never a bare dash, and never a number derived by
+ * comparing two live readings and calling the difference a change. "What changed?"
+ * compares against a RECORDED SNAPSHOT or it says there is nothing to compare with. */
+let LAST_C=null;
+let ALL_RUN=null;          // latest Wildcard run as seen by ALL — never written back to WC_RUN
+let ALL_LOT_ERR=null;      // why the Lottery registry could not be read, if it could not
+
+/* ALL fetches its own copy. It must not call wcLoadSeats()/lotOpen(), which drive the
+ * takeover screens: an overview quietly changing the state of another mission is exactly
+ * the kind of cross-contamination the three-mission split exists to prevent. */
+async function allLoadMissions(){
+  const base=lotBase(); if(!base){ allRender(); return; }
+  ALL_LOT_ERR=null;
+  try{ const j=await apiJson(base+"/api/lottery");
+       LOT={tickets:j.tickets||[],summary:j.summary||null,rules:j.rules||null,backend:j.backend||null}; }
+  catch(e){ ALL_LOT_ERR=(e&&e.body&&e.body.error)||(e&&e.message)||String(e); }
+  try{ const j=await apiJson(base+"/api/wildcard/runs?limit=1"); ALL_RUN=(j.runs||[])[0]||null; }
+  catch(e){ ALL_RUN=null; }
+  allRender();
+}
+
+function allSnapAgo(days){
+  /* The newest snapshot at least `days` old. Returns null rather than the closest
+   * available one: answering "7 days" with yesterday's number is an invented figure. */
+  const h=Array.isArray(S.history)?S.history:[];
+  if(!h.length)return null;
+  const cutoff=Date.now()-days*86400000;
+  let best=null;
+  for(let i=0;i<h.length;i++){const x=h[i];if(x&&x.ts<=cutoff&&(!best||x.ts>best.ts))best=x;}
+  return best;
+}
+function allDelta(nowVal,thenVal){
+  if(nowVal==null||thenVal==null||!(thenVal>0))return null;
+  const d=nowVal-thenVal;return{d:d,pc:d/thenVal*100};
+}
+function allSetDelta(id,delta,unavailableMsg){
+  const el=$(id);if(!el)return;
+  if(!delta){el.className="v small";el.textContent=unavailableMsg;return;}
+  el.className="v "+plClass(delta.d);
+  el.innerHTML=(delta.d>0?"+":"")+usd(delta.d)+' <span class="bhd">'+(delta.pc>0?"+":"")+delta.pc.toFixed(2)+"%</span>";
+}
+function allLine(kind,label,text){
+  return '<div class="all-line '+kind+'"><span class="b"></span><span class="x"><b>'+esc(label)+'</b>'+esc(text)+'</span></div>';
+}
+
+/* Material change, ranked, maximum three. Every entry is evidenced by a stored
+ * snapshot, a stored alert or a recorded mission state — never by today's numbers alone. */
+function allChanges(c){
+  const out=[],prev=prevDaySnap();
+  if(!prev){
+    out.push(allLine("","NO BASELINE","No earlier snapshot to compare against yet. Refresh once and tomorrow this fills in."));
+    return out;
+  }
+  const dv=allDelta(c.pot,prev.value);
+  if(dv&&Math.abs(dv.pc)>=1)
+    out.push(allLine(dv.d>0?"up":"down","PORTFOLIO","Moved "+(dv.d>0?"up":"down")+" "+usd(Math.abs(dv.d))+" ("+dv.pc.toFixed(1)+"%) since the last recorded snapshot."));
+  // Largest holding mover, measured snapshot-to-snapshot.
+  if(Array.isArray(prev.holdings)&&prev.holdings.length){
+    let top=null;
+    prev.holdings.forEach(function(ph){
+      const now=c.rows[ph.sym];if(!now||!(ph.val>0))return;
+      const d=now.val-ph.val,pc=d/ph.val*100;
+      if(!top||Math.abs(pc)>Math.abs(top.pc))top={sym:ph.sym,d:d,pc:pc};
+    });
+    if(top&&Math.abs(top.pc)>=2)
+      out.push(allLine(top.d>0?"up":"down","LARGEST MOVER",top.sym+" "+(top.d>0?"up":"down")+" "+Math.abs(top.pc).toFixed(1)+"% ("+usd(Math.abs(top.d))+") since the last snapshot."));
+  }
+  const dc=allDelta(c.cash,prev.cash);
+  if(dc&&Math.abs(dc.d)>=250)
+    out.push(allLine(dc.d>0?"up":"down","CASH","Broker cash "+(dc.d>0?"up":"down")+" "+usd(Math.abs(dc.d))+" since the last snapshot."));
+  if(c.concPc!=null&&prev.holdings){
+    const prevTop=prev.holdings.reduce(function(a,b){return (!a||b.pc>a.pc)?b:a;},null);
+    if(prevTop&&c.concPc>=40&&prevTop.pc<40)
+      out.push(allLine("warn","CONCENTRATION","Largest holding crossed 40% of the portfolio ("+c.concPc.toFixed(1)+"%)."));
+  }
+  const al=activeAlerts(c);
+  if(al.length&&(!prev.alertCount||al.length>prev.alertCount))
+    out.push(allLine("warn","ALERT",al[0].title||al[0].msg||"A new alert is active."));
+  if(LOT&&LOT.summary&&LOT.summary.monthSlotUsed)
+    out.push(allLine("","LOTTERY","This month's Lottery execution slot is used."));
+  if(WC_RUN&&WC_RUN.id)
+    out.push(allLine("","DAILY","Today's Wildcard run is at "+esc(String(wcStepNow&&wcStepNow()||"in progress"))+"."));
+  if(!out.length)out.push(allLine("","STEADY","No major change since the last recorded snapshot."));
+  return out.slice(0,3);
+}
+
+function allRender(c){
+  if(!$("allDashboard"))return;
+  c=c||LAST_C;
+  if(!c){$("allPv").textContent="—";return;}
+
+  $("allPv").innerHTML=c.pot>0?usd(c.pot)+'<span class="bhd"> / '+bhd(c.pot)+'</span>':"Enter your portfolio to see a value";
+  const td=$("allToday");
+  if(c.haveDp&&c.dayPl!=null){td.className="v "+plClass(c.dayPl);td.innerHTML=(c.dayPl>0?"+":"")+usd(c.dayPl);}
+  else{td.className="v small";td.textContent="Today's broker P/L unavailable";}
+  const w=allSnapAgo(7);
+  allSetDelta("all7d",w?allDelta(c.pot,w.value):null,"Not enough history yet");
+  const tp=$("allTot");
+  if(c.invested>0){tp.className="v "+plClass(c.totPl);
+    tp.innerHTML=(c.totPl>0?"+":"")+usd(c.totPl)+(c.cost>0?' <span class="bhd">'+(c.totPl/c.cost*100).toFixed(1)+"%</span>":"");}
+  else{tp.className="v small";tp.textContent="No holdings recorded";}
+  const cf=$("allConf");
+  cf.className="v small";
+  cf.textContent=S.lastRefresh?(timeAgo(S.lastRefresh)+" · "+(($("confPill")&&$("confPill").textContent)||"")):"Refresh required";
+  $("allStamp").textContent=S.lastRefresh?("SNAPSHOT "+new Date(S.lastRefresh).toLocaleString()):"NEVER REFRESHED";
+
+  $("allChanged").innerHTML=allChanges(c).join("");
+
+  /* Attention state. DATA MISSING outranks CLEAR: a clear board that nobody has
+   * refreshed is not clear, it is unknown. */
+  const al=activeAlerts(c),high=al.filter(function(a){return a.sev==="high";});
+  let state,cls,reasons=[];
+  if(!S.lastRefresh||!c.pot){state="DATA MISSING";cls="missing";
+    reasons.push(allLine("","NO DATA",!c.pot?"No portfolio entered yet.":"Nothing has been refreshed on this device yet."));}
+  else if(c.gateBlock||high.length){state="ACTION NEEDED";cls="action";}
+  else if(al.length||c.status==="WATCH"||c.status==="REDUCE RISK"){state="WATCH";cls="watch";}
+  else{state="CLEAR";cls="clear";}
+  if(c.gateBlock)reasons.push(allLine("warn","DEPLOYMENT HELD",c.gateBlind?"Low visibility — Monthly Plan unaffected.":"Market risk is flagged."));
+  al.slice(0,2).forEach(function(a){reasons.push(allLine(a.sev==="high"?"down":"warn",String(a.sev||"").toUpperCase()||"ALERT",a.title||a.msg||"Alert active."));});
+  if(!reasons.length)reasons.push(allLine("up","CLEAR","Nothing needs a decision right now."));
+  const st=$("allAttnState");st.textContent=state;st.className="all-state "+cls;
+  $("allAttn").innerHTML=reasons.slice(0,3).join("");
+
+  // ── Long Term card
+  $("amLtVal").textContent=c.pot>0?usd(c.pot):"—";
+  const wk=w?allDelta(c.pot,w.value):null,pv=prevDaySnap()?allDelta(c.pot,prevDaySnap().value):null,dir=pv||wk;
+  $("amLtDir").textContent=dir?((dir.d>0?"Up ":"Down ")+Math.abs(dir.pc).toFixed(1)+"% "+(pv?"since the last snapshot":"over 7 days")):"Not enough history yet";
+  $("amLtAct").textContent=recommendedActionText(c);
+  $("amLtPol").textContent=bhdLabel(c.policy.monthlyPlanBhd)+" → "+c.policy.destination+" · "+c.policy.status;
+  $("amLtAlert").textContent=al.length?(al[0].title||al[0].msg):"No policy exception";
+
+  // ── Daily card. State only. NEVER an instruction: Daily's rules live on Daily.
+  const dl=$("amDlState"),dv=$("amDlVerdict"),dr=$("amDlResult");
+  const R=WC_RUN||ALL_RUN;
+  if(!S.backendUrl){dl.textContent="Connect the backend in Settings to see today's run.";dv.textContent="Unavailable";dr.textContent="Unavailable";}
+  else if(!R||!R.id){dl.textContent="No run recorded today.";dv.textContent="No verdict — no run.";dr.textContent="No result recorded.";}
+  else{
+    dl.textContent=R.evidence_pack_hash?"Evidence locked.":"Evidence gathering in progress.";
+    const d=(R.decision&&R.decision.verdict)||null;
+    dv.textContent=d?String(d):"No verdict recorded yet.";
+    dr.textContent=R.result_pnl!=null?usd(R.result_pnl):"No result recorded.";
+  }
+
+  // ── Lottery card. Never a recommendation. NO AI GO is binding.
+  const ls=LOT&&LOT.summary;
+  if(!S.backendUrl){$("amLoSlot").textContent="—";$("amLoActive").textContent="Connect the backend in Settings.";
+    $("amLoRisk").textContent="Unavailable";$("amLoValue").textContent="Unavailable";$("amLoWarn").textContent="Unavailable";}
+  else if(ALL_LOT_ERR){$("amLoSlot").textContent="—";$("amLoActive").textContent="Registry unavailable: "+ALL_LOT_ERR;
+    $("amLoRisk").textContent="Unavailable";$("amLoValue").textContent="Unavailable";$("amLoWarn").textContent="Unavailable";}
+  else if(!ls){$("amLoSlot").textContent="—";$("amLoActive").textContent="Registry not loaded yet.";
+    $("amLoRisk").textContent="Unavailable";$("amLoValue").textContent="Unavailable";$("amLoWarn").textContent="Unavailable";}
+  else{
+    $("amLoSlot").textContent=ls.monthSlotUsed?"USED":"OPEN";
+    $("amLoActive").textContent=String(ls.activeCount||0)+" active ticket"+((ls.activeCount===1)?"":"s");
+    $("amLoRisk").textContent=ls.capitalAtRiskUsd!=null?lotMoney(ls.capitalAtRiskUsd):"Unavailable";
+    const act=(LOT.tickets||[]).filter(function(t){return t.status==="ACTIVE";});
+    const priced=act.filter(function(t){return lotLatestValue(t)!=null;});
+    $("amLoValue").textContent=!act.length?"No active tickets":(priced.length?lotMoney(priced.reduce(function(n,t){return n+lotLatestValue(t);},0))+(priced.length<act.length?" ("+priced.length+" of "+act.length+" priced)":""):"No ticket prices recorded");
+    const fail=act.filter(function(t){return t.failure_condition;})[0];
+    $("amLoWarn").textContent=fail?(fail.ticker+": "+fail.failure_condition):"No failure condition recorded";
+  }
+}
+
+/* ═══════════ 2.8.1 — LONG TERM: ONE warning strip ═════════════════════════════ */
+function renderLtWarn(c){
+  const k=$("ltWarnK"),t=$("ltWarnT"),box=$("ltWarnStrip");
+  if(!k||!t||!box)return;
+  const al=activeAlerts(c),top=al[0];
+  box.className="ltwarn";
+  if(c.gateBlock){box.className="ltwarn bad";k.textContent="DEPLOYMENT HELD";
+    t.textContent=c.gateBlind?"Low visibility. The Monthly Plan is unaffected.":"Market risk is flagged across all buckets.";return;}
+  if(top){box.className="ltwarn "+(top.sev==="high"?"bad":"warn");
+    k.textContent=String(top.sev||"").toUpperCase()==="HIGH"?"ACTION NEEDED":"WATCH";
+    t.textContent=(top.title||top.msg||"")+(al.length>1?"  ·  "+(al.length-1)+" more in MORE DETAIL":"");return;}
+  k.textContent="NO POLICY EXCEPTION";t.textContent="Nothing is overriding the written policy.";
+}
+
+/* Restore the MORE DETAIL preference AFTER boot. A storage failure must never be able
+ * to stop the page rendering, so this is deliberately not part of the boot path. */
+(function(){
+  const d=$("ltMore");if(!d)return;
+  try{ if(localStorage.getItem("icc_ltmore")==="1") d.open=true; }catch(_){}
+  d.addEventListener("toggle",function(){try{localStorage.setItem("icc_ltmore",d.open?"1":"0");}catch(_){}});
+})();
+
+/* ═══════════ MONEY MISSIONS + LOTTERY REGISTRY ════════════════════════════════
+ * ALL is a quiet overview. Long Term keeps the existing single-authority decision surface.
+ * Daily and Lottery are full-screen takeovers, so their rules can never be mistaken for the
+ * written long-term policy or for one another. Lottery V1 records MANUAL decisions only. */
+let MISSION_VIEW="all";
+let LOT={tickets:[],summary:null,rules:null,backend:null};
+
+function lotBase(){return S.backendUrl?S.backendUrl.replace(/\/+$/,''):null;}
+function lotSetStatus(msg,tone){const e=$("lotStatus");if(!e)return;e.textContent=msg;e.className="lot-note"+(tone?" "+tone:"");}
+function lotClose(){const o=$("lotOverlay");if(o)o.classList.remove("open");document.body.style.overflow="";}
+function lotOpen(){const o=$("lotOverlay");if(!o)return;o.classList.add("open");document.body.style.overflow="hidden";lotLoad();}
+
+function setMissionView(view,scrollTop){
+  const v=["all","long","daily","lottery"].includes(view)?view:"all";
+  MISSION_VIEW=v;
+  document.body.classList.toggle("main-long",v==="long");
+  /* ALL hides the Long Term surface outright — the two tabs must never be the same page. */
+  document.body.classList.toggle("view-all",v==="all");
+  if(v==="all"){ allRender();
+    const t=tokenGet(); if(S.backendUrl&&t&&!tokenExpired(t)) allLoadMissions(); }
+  if(v==="daily"){lotClose();wcOpen();}
+  else if(v==="lottery"){wcClose();lotOpen();}
+  else{wcClose();lotClose();}
+  document.querySelectorAll("[data-mission]").forEach(function(b){b.classList.toggle("on",b.getAttribute("data-mission")===v);});
+  const nm=$("navmenu");if(nm)nm.classList.remove("open");
+  if(scrollTop!==false&&(v==="all"||v==="long"))window.scrollTo({top:0,behavior:"smooth"});
+}
+
+function lotMoney(v){const n=+v;return Number.isFinite(n)?(n<0?"-":"")+"$"+Math.abs(n).toLocaleString(undefined,{minimumFractionDigits:0,maximumFractionDigits:2}):"—";}
+function lotToday(){return new Date().toISOString().slice(0,10);}
+function lotStatusClass(s){return String(s||"").toLowerCase();}
+function lotLatestValue(t){return t.status==="ACTIVE"&&t.current_price!=null&&t.units!=null?(+t.current_price)*(+t.units):null;}
+function lotTicketHtml(t){
+  const id=esc(t.id||""),status=String(t.status||"WATCHLIST"),entry=t.entry_price!=null?lotMoney(t.entry_price):null;
+  const latest=lotLatestValue(t),pnl=latest!=null&&t.allocated_usd!=null?latest-(+t.allocated_usd):null;
+  let h='<div class="lot-ticket"><div class="top"><div><div class="sym">'+esc(t.ticker||"—")+'</div><div class="co">'+esc(t.company||"")+'</div></div>'
+    +'<span class="lot-status '+lotStatusClass(status)+'">'+esc(status.replace(/_/g," "))+'</span></div>'
+    +'<div class="lot-meta"><span>'+esc(t.broker||"—")+'</span><span>PLANNED '+lotMoney(t.planned_usd)+'</span>'
+    +(t.entry_date?'<span>ENTERED '+esc(t.entry_date)+'</span>':'')+(entry?'<span>ENTRY '+entry+'</span>':'')
+    +(t.allocated_usd!=null?'<span>AT RISK '+lotMoney(t.allocated_usd)+'</span>':'')
+    +(latest!=null?'<span>VALUE '+lotMoney(latest)+'</span><span class="'+(pnl>=0?'pos':'neg')+'">P/L '+lotMoney(pnl)+'</span>':'')+'</div>';
+  if(t.thesis)h+='<div class="lot-copy"><b>THESIS</b> · '+esc(t.thesis)+'</div>';
+  if(t.failure_condition)h+='<div class="lot-copy"><b>FAIL IF</b> · '+esc(t.failure_condition)+'</div>';
+  if(t.objective)h+='<div class="lot-copy"><b>OBJECTIVE</b> · '+esc(t.objective)+'</div>';
+  if(status==="WATCHLIST"){
+    h+='<div class="lot-actions"><button class="lot-btn" data-lot-action="candidate" data-lot-id="'+id+'">MARK CANDIDATE</button></div>';
+  }else if(status==="CANDIDATE"){
+    h+='<div class="lot-fields"><div class="lot-field"><label>Entry date</label><input type="date" value="'+lotToday()+'" data-lot-entry-date="'+id+'"></div>'
+      +'<div class="lot-field"><label>Entry price</label><input type="number" min="0.000001" step="any" data-lot-entry-price="'+id+'"></div>'
+      +'<div class="lot-field"><label>Units</label><input type="number" min="0.000001" step="any" data-lot-units="'+id+'"></div>'
+      +'<div class="lot-field"><label>Allocated USD</label><input type="number" min="1" step="0.01" value="'+esc(t.planned_usd==null?100:t.planned_usd)+'" data-lot-amount="'+id+'"></div></div>'
+      +'<div class="lot-actions"><button class="lot-btn" data-lot-action="activate" data-lot-id="'+id+'">RECORD MANUAL BUY</button></div>';
+  }else if(status==="ACTIVE"){
+    h+='<div class="lot-fields"><div class="lot-field"><label>Manual current price</label><input type="number" min="0" step="any" value="'+esc(t.current_price==null?"":t.current_price)+'" data-lot-price="'+id+'"></div></div>'
+      +'<div class="lot-actions"><button class="lot-btn sec" data-lot-action="price" data-lot-id="'+id+'">SAVE PRICE</button></div>'
+      +'<details style="margin-top:10px"><summary class="lot-note" style="cursor:pointer">Close this ticket</summary><div class="lot-fields">'
+      +'<div class="lot-field"><label>Exit price</label><input type="number" min="0" step="any" data-lot-exit-price="'+id+'"></div>'
+      +'<div class="lot-field full"><label>Reason</label><input data-lot-exit-reason="'+id+'" placeholder="Thesis broke / objective reached"></div></div>'
+      +'<div class="lot-actions"><button class="lot-btn" data-lot-action="exit" data-lot-id="'+id+'">RECORD EXIT</button><button class="lot-btn bad" data-lot-action="writeoff" data-lot-id="'+id+'">WRITE OFF</button></div></details>';
+  }else if(status==="EXITED"||status==="WRITTEN_OFF"){
+    h+='<div class="lot-actions"><button class="lot-btn sec" data-lot-action="archive" data-lot-id="'+id+'">ARCHIVE</button></div>';
+  }
+  return h+'</div>';
+}
+
+function lotRender(){
+  const s=LOT.summary||{},tickets=Array.isArray(LOT.tickets)?LOT.tickets:[];
+  if($("lotMonth"))$("lotMonth").textContent=s.monthSlotUsed?"USED":"OPEN";
+  if($("lotActive"))$("lotActive").textContent=String(s.activeCount!=null?s.activeCount:tickets.filter(t=>t.status==="ACTIVE").length);
+  if($("lotRisk"))$("lotRisk").textContent=lotMoney(s.capitalAtRiskUsd!=null?s.capitalAtRiskUsd:tickets.filter(t=>t.status==="ACTIVE").reduce((n,t)=>n+(+t.allocated_usd||0),0));
+  const list=$("lotList");if(list)list.innerHTML=tickets.length?tickets.map(lotTicketHtml).join(""):'<div class="lot-empty">No tickets yet. Add the first name to the registry above.</div>';
+}
+
+async function lotLoad(){
+  const base=lotBase();if(!base){LOT={tickets:[],summary:null,rules:null,backend:null};lotRender();lotSetStatus("Connect your backend in Settings first.","bad");return;}
+  lotSetStatus("Loading registry…","");
+  try{const j=await apiJson(base+"/api/lottery");LOT={tickets:j.tickets||[],summary:j.summary||null,rules:j.rules||null,backend:j.backend||null};lotRender();
+    lotSetStatus("Registry loaded · "+(j.backend==="supabase"?"durable store":"test fallback store"),(j.backend==="supabase"?"good":""));
+  }catch(e){lotSetStatus("Couldn't load the registry: "+((e&&e.body&&e.body.error)||e.message||e),"bad");}
+}
+
+async function lotCreate(ev){
+  ev.preventDefault();const base=lotBase();if(!base){lotSetStatus("Connect your backend first.","bad");return;}
+  const body={ticker:$("lotTicker").value,company:$("lotCompany").value,broker:$("lotBroker").value,status:$("lotState").value,
+    plannedUsd:$("lotPlanned").value,thesis:$("lotThesis").value,failureCondition:$("lotFailure").value,objective:$("lotObjective").value,notes:$("lotNotes").value};
+  try{await apiJson(base+"/api/lottery",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});$("lotCreateForm").reset();$("lotPlanned").value="100";lotSetStatus("Saved to the registry.","good");await lotLoad();}
+  catch(e){lotSetStatus((e&&e.body&&e.body.note)||(e&&e.body&&e.body.error)||e.message||String(e),"bad");}
+}
+
+function lotField(sel,id){const e=document.querySelector('['+sel+'="'+id+'"]');return e?e.value:null;}
+async function lotPatch(id,body){const base=lotBase();if(!base)return;try{await apiJson(base+"/api/lottery/"+encodeURIComponent(id),{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});lotSetStatus("Ticket updated.","good");await lotLoad();}catch(e){lotSetStatus((e&&e.body&&e.body.note)||(e&&e.body&&e.body.error)||e.message||String(e),"bad");}}
+async function lotAct(action,id){
+  if(action==="candidate")return lotPatch(id,{action});
+  if(action==="activate")return lotPatch(id,{action,entryDate:lotField("data-lot-entry-date",id),entryPrice:lotField("data-lot-entry-price",id),units:lotField("data-lot-units",id),allocatedUsd:lotField("data-lot-amount",id)});
+  if(action==="price")return lotPatch(id,{action,currentPrice:lotField("data-lot-price",id)});
+  if(action==="exit")return lotPatch(id,{action,exitPrice:lotField("data-lot-exit-price",id),reason:lotField("data-lot-exit-reason",id)});
+  if(action==="writeoff")return lotPatch(id,{action,reason:lotField("data-lot-exit-reason",id)});
+  if(action==="archive")return lotPatch(id,{action});
+}
+
+async function lotRefreshPrices(){
+  const base=lotBase(),active=(LOT.tickets||[]).filter(t=>t.status==="ACTIVE");if(!base||!active.length){lotSetStatus("No active tickets to price.","");return;}
+  lotSetStatus("Refreshing active-ticket prices…","");
+  try{const j=await apiJson(base+"/api/prices?symbols="+encodeURIComponent(active.map(t=>t.ticker).join(",")));const ps=j.prices||{};
+    const calls=active.filter(t=>ps[t.ticker]&&ps[t.ticker].price!=null).map(t=>apiJson(base+"/api/lottery/"+encodeURIComponent(t.id),{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"price",currentPrice:ps[t.ticker].price})}));
+    await Promise.all(calls);lotSetStatus(calls.length?"Live prices saved for "+calls.length+" active ticket(s).":"No live ticket prices were available.",calls.length?"good":"");await lotLoad();
+  }catch(e){lotSetStatus((e&&e.body&&e.body.error)||e.message||String(e),"bad");}
+}
+
+(function(){
+  document.querySelectorAll("[data-mission]").forEach(function(b){b.addEventListener("click",function(){setMissionView(this.getAttribute("data-mission"));});});
+  document.body.classList.toggle("view-all",MISSION_VIEW==="all");
+  /* Deferred and guarded: ALL's mission figures are worth having on first load, but not at
+   * the cost of the boot path. If this never runs, the cards say so instead of inventing. */
+  setTimeout(function(){
+    const t=tokenGet();
+    if(MISSION_VIEW==="all"&&S.backendUrl&&t&&!tokenExpired(t)) allLoadMissions();
+  },1200);
+  const c=$("lotClose");if(c)c.onclick=function(){setMissionView("all");};
+  const f=$("lotCreateForm");if(f)f.addEventListener("submit",lotCreate);
+  const r=$("lotReload");if(r)r.onclick=lotLoad;
+  const p=$("lotPrices");if(p)p.onclick=lotRefreshPrices;
+  const list=$("lotList");if(list)list.addEventListener("click",function(ev){const b=ev.target.closest("[data-lot-action]");if(b)lotAct(b.getAttribute("data-lot-action"),b.getAttribute("data-lot-id"));});
+})();
 
 /* Wired directly, not in DOMContentLoaded: the markup above sits before this script block,
  * so it is guaranteed to exist by the time this line runs. */
@@ -2015,6 +2740,7 @@ function render(){
   renderChanged(c); renderDanger(c); renderOpp(c); renderPortfolio(c);
   renderDryPowder(c); renderRadar(c); startCountdown(); renderCommittee(); renderGuide(c); renderJournal();
   renderConfidence(); renderBuildChip(); renderSourcePanel(); renderTrend(); writeSnapshot(c);
+  LAST_C=c; renderLtWarn(c); allRender(c);
   return c;
 }
 function fgLabel(v){return v<25?"Ext Fear":v<45?"Fear":v<=55?"Neutral":v<=75?"Greed":"Ext Greed";}
@@ -2866,10 +3592,12 @@ function openChat(){$("chatOverlay").classList.add("open");renderChat();setTimeo
 function closeChat(){$("chatOverlay").classList.remove("open");}
 $("burger").onclick=(e)=>{e.stopPropagation();const nm=$("navmenu");if(!nm.classList.contains("open")){const r=e.currentTarget.getBoundingClientRect();nm.style.top=(r.bottom+6)+"px";nm.style.right=Math.max(12,(window.innerWidth-r.right))+"px";}nm.classList.toggle("open");};
 document.addEventListener("click",(e)=>{const nm=$("navmenu");if(nm&&nm.classList.contains("open")&&!nm.contains(e.target)&&e.target!==$("burger"))nm.classList.remove("open");});
-$("navDash").onclick=()=>{document.body.classList.remove("show-markets");wcClose();$("navmenu").classList.remove("open");window.scrollTo({top:0,behavior:"smooth"});};
-$("navMarkets").onclick=()=>{document.body.classList.add("show-markets");$("navmenu").classList.remove("open");const t=document.querySelector(".sec-markets");if(t)setTimeout(()=>t.scrollIntoView({behavior:"smooth",block:"start"}),30);};
+$("navDash").onclick=()=>{document.body.classList.remove("show-markets");setMissionView("all");};
+$("navLong").onclick=()=>{document.body.classList.remove("show-markets");setMissionView("long");};
+$("navMarkets").onclick=()=>{setMissionView("long",false);document.body.classList.add("show-markets");$("navmenu").classList.remove("open");const d=$("ltMore");if(d)d.open=true;const t=document.querySelector(".sec-markets");if(t)setTimeout(()=>t.scrollIntoView({behavior:"smooth",block:"start"}),30);};
 $("navChat").onclick=()=>{$("navmenu").classList.remove("open");openChat();};
-$("navWildcard").onclick=()=>{$("navmenu").classList.remove("open");wcOpen();};
+$("navWildcard").onclick=()=>{setMissionView("daily");};
+$("navLottery").onclick=()=>{setMissionView("lottery");};
 $("navSettings").onclick=()=>{$("navmenu").classList.remove("open");$("setBtn").click();};
 $("navEdit").onclick=()=>{$("navmenu").classList.remove("open");$("editBtn").click();};
 /* PRE-EXISTING BUG FIX (page-load crash). The chat overlay markup sits BELOW this script

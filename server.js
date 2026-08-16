@@ -30,7 +30,7 @@ const { resolve: resolveCommitteeAction } = require('./committee-resolver');
  * by hand whenever the backend is deployed. Surfaced via /api/health so the frontend
  * can compare it against its own constant and flag frontend/backend deployment drift.
  * The frontend expects API_VERSION to match its EXPECTED_API constant.               */
-const API_VERSION = '2.8.0';
+const API_VERSION = '2.8.1';
 
 const app = express();
 app.use(express.json({ limit: '128kb' }));
@@ -1558,15 +1558,10 @@ const WC_SYNTH_CONTRACT = [
  * alter a single byte of the prompt text — so COPY PROMPT === wire prompt === prompt_sent
  * still holds. Deliberately NOT applied to Gemini research, the Geo call, chat, or the
  * committee: forcing JSON mode on a seat asked for prose would break it. */
-/* ONLY WELL-ATTESTED SCHEMA FIELDS ARE USED: uppercase `type`, `properties`, `enum` and
- * `required`. That is the shape documented for generationConfig.responseSchema on the
- * v1beta generateContent endpoint this file calls.
- *
- * `nullable: true` was here and has been REMOVED. It could not be confirmed against the
- * current published Schema definition, and an unverified field in a request that decides
- * nothing-versus-something is not worth the risk. Optional values are handled by leaving
- * them OUT of `required` instead — a field the model omits and a field it sets to null are
- * treated identically by validateSynthesis(), so the contract is unaffected either way.
+/* SCHEMA FIELDS USED: uppercase `type`, `properties`, `enum`, `required` and `nullable`.
+ * That is the shape documented for generationConfig.responseSchema on the v1beta
+ * generateContent endpoint this file calls. The note above WC_SYNTH_SCHEMA below records
+ * how `nullable` was confirmed and why a wrong call there cannot cost a decision.
  *
  * Note also that Google's current structured-output GUIDE documents a newer Interactions
  * API (/v1beta/interactions with response_format and lowercase types). That is a DIFFERENT
@@ -2760,15 +2755,37 @@ async function bumpUsage(endpoint) {
  * One manual execution per calendar month. Once active, entry price/units/capital are
  * immutable: adding to the position would be averaging down and is not a supported action.
  *
- * Durable deployments should create `investing.lottery_tickets` with the fields written
- * below and a UNIQUE partial index on entry_month WHERE entry_month IS NOT NULL. The API
- * also checks the limit, while that index closes the simultaneous-request race. Until the
- * table exists it uses the existing JSON/in-memory fallback so the flow can be tested. */
+ * Durable deployments must create `investing.lottery_tickets` — see the supplied migration
+ * sql/2026-08-16-lottery-tickets.sql — with a UNIQUE partial index on entry_month WHERE
+ * entry_month IS NOT NULL. The API check below gives the readable refusal; that index is
+ * the race-safe authority. The JSON/in-memory fallback is reachable ONLY when Supabase is
+ * not configured at all: once SUPABASE_URL and SUPABASE_SERVICE_KEY are set, Supabase is
+ * authoritative and any read or write failure REFUSES with 502. It must never downgrade to
+ * a store that cannot see this month's execution — that is how a one-per-month rule silently
+ * becomes no rule, and on Render the file store is wiped on every container restart. */
 const LOTTERY_STATUS = ['WATCHLIST', 'CANDIDATE', 'ACTIVE', 'EXITED', 'WRITTEN_OFF', 'ARCHIVED'];
 const LOTTERY_BROKERS = ['eToro', 'Trading 212'];
 const LOTTERY_TICKER = /^[A-Z0-9.\-]{1,12}$/;
+const LOTTERY_MIN_USD = 75;
+const LOTTERY_MAX_USD = 125;
+
+/* The Lottery calendar is Andy's local calendar, not the server's. A Render box runs UTC;
+ * at 01:00 Bahrain on the 1st, UTC still reads the previous month — which would hand out a
+ * second execution. The enforcement month is derived here and NEVER taken from the client. */
+const LOTTERY_TZ = process.env.LOTTERY_TZ || 'Asia/Bahrain';
+let _lotTzFmt = null, _lotTzError = null;
+try {
+  _lotTzFmt = new Intl.DateTimeFormat('en-CA', { timeZone: LOTTERY_TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(_lotTzFmt.format(new Date()))) throw new Error('unexpected format');
+} catch (e) { _lotTzFmt = null; _lotTzError = 'LOTTERY_TZ is not a usable IANA timezone: ' + LOTTERY_TZ; }
+/* Server-derived Lottery date. Throws rather than guessing — a Lottery route that cannot
+ * establish the enforcement date must refuse, not fall back to UTC. */
+function lotToday() {
+  if (!_lotTzFmt) throw new Error(_lotTzError || 'lottery timezone unavailable');
+  return _lotTzFmt.format(new Date());
+}
 const LOTTERY_RULES = Object.freeze({
-  ticketSize: 'around USD 100', maxNewExecutionsPerCalendarMonth: 1,
+  ticketSize: 'around USD 100', minUsd: LOTTERY_MIN_USD, maxUsd: LOTTERY_MAX_USD, timezone: LOTTERY_TZ, maxNewExecutionsPerCalendarMonth: 1,
   instruments: 'long individual ordinary shares only', normalHold: '5 years or more',
   noTopUps: true, noAiGo: true, noAutoExecution: true,
   excluded: ['ETFs', 'CFDs', 'leverage', 'options', 'shorting', 'crypto'],
@@ -2784,7 +2801,26 @@ function lotIsoDate(v) {
   return Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === s ? s : null;
 }
 function lotMonthOf(date) { return date ? String(date).slice(0, 7) : null; }
-function lotCurrentMonth() { return new Date().toISOString().slice(0, 7); }
+function lotCurrentMonth() { return lotToday().slice(0, 7); }
+/* One place decides whether a submitted entry date is acceptable, and it names the reason.
+ * A normal activation is dated TODAY in the Lottery timezone. Omitting the date is fine —
+ * the server fills it in. Supplying a different one is refused: back-dating is how a second
+ * execution hides inside a used month, and a future date records a trade that has not
+ * happened. Historical corrections are deliberately not buildable through this route. */
+function lotResolveEntryDate(supplied) {
+  const today = lotToday();
+  if (supplied == null || supplied === '') return { date: today };
+  const iso = lotIsoDate(supplied);
+  if (!iso) return { error: 'valid_entry_date_required' };
+  if (iso === today) return { date: today };
+  return {
+    error: iso > today ? 'entry_date_in_future' : 'entry_date_back_dated',
+    note: iso > today
+      ? 'A Lottery execution cannot be recorded before it has happened.'
+      : 'Back-dating would bypass the one-execution-per-calendar-month limit. A historical correction is a separate owner-only process that does not exist yet.',
+    supplied: iso, today, timezone: LOTTERY_TZ
+  };
+}
 function lotSummary(tickets) {
   const current = lotCurrentMonth();
   const active = tickets.filter(t => t.status === 'ACTIVE');
@@ -2798,14 +2834,28 @@ function lotSummary(tickets) {
   };
 }
 
+/* FAILS CLOSED BY DESIGN. There is no catch here on purpose: when Supabase is configured
+ * and unreachable, the caller must return 502, not a file store that has never seen this
+ * month's execution. The previous version caught the error and returned the fallback, which
+ * turned a momentary read failure into permission for a second execution. */
 async function lotReadStore() {
   if (sbOn()) {
-    try {
-      const rows = await sbWc('GET', 'lottery_tickets?select=*&order=created_at.desc');
-      return { tickets: Array.isArray(rows) ? rows : [], backend: 'supabase' };
-    } catch (e) { logUpstream('lottery:read', e); }
+    const rows = await sbWc('GET', 'lottery_tickets?select=*&order=created_at.desc');
+    return { tickets: Array.isArray(rows) ? rows : [], backend: 'supabase' };
   }
   return { tickets: histLoad().lottery.slice().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))), backend: 'file' };
+}
+/* Which backend a refusal came from, without needing a successful read to say so. */
+function lotBackend() { return sbOn() ? 'supabase' : 'file'; }
+/* A Supabase failure must never be reported as a durable write, and must never be
+ * answered from temporary storage. */
+function lotStoreUnavailable(res, where, e) {
+  logUpstream(where, e);
+  return res.status(502).json({
+    error: 'lottery_store_unavailable', backend: lotBackend(),
+    note: 'The durable Lottery registry is configured but did not respond. Refusing rather than falling back to temporary storage, because the fallback cannot see this month\'s execution.',
+    ts: Date.now()
+  });
 }
 async function lotInsertStore(ticket, backend) {
   if (backend === 'supabase') {
@@ -2833,15 +2883,27 @@ function lotPublic(ticket) {
   return out;
 }
 
+/* Every Lottery route refuses before it does anything else if the enforcement calendar is
+ * not establishable. Without a trustworthy month there is no monthly limit. */
+function lotTzGuard(res) {
+  if (_lotTzFmt) return false;
+  res.status(500).json({ error: 'lottery_timezone_invalid', timezone: LOTTERY_TZ, backend: lotBackend(),
+    note: 'LOTTERY_TZ must be a valid IANA timezone. The one-execution-per-calendar-month limit cannot be enforced without it.' });
+  return true;
+}
+
 app.get('/api/lottery', async (req, res) => {
-  try {
-    const store = await lotReadStore();
-    res.json({ tickets: store.tickets.map(lotPublic), summary: lotSummary(store.tickets), rules: LOTTERY_RULES,
-      backend: store.backend, note: store.backend === 'supabase' ? 'Durable registry.' : 'Fallback test store; configure the Supabase table before relying on cross-device persistence.', ts: Date.now() });
-  } catch (e) { logUpstream('lottery:get', e); res.status(502).json({ error: 'lottery_store_unavailable' }); }
+  if (lotTzGuard(res)) return;
+  let store;
+  try { store = await lotReadStore(); }
+  catch (e) { return lotStoreUnavailable(res, 'lottery:read', e); }
+  res.json({ tickets: store.tickets.map(lotPublic), summary: lotSummary(store.tickets), rules: LOTTERY_RULES,
+    backend: store.backend, timezone: LOTTERY_TZ,
+    note: store.backend === 'supabase' ? 'Durable registry.' : 'Fallback test store; configure the Supabase table before relying on cross-device persistence.', ts: Date.now() });
 });
 
 app.post('/api/lottery', async (req, res) => {
+  if (lotTzGuard(res)) return;
   const b = req.body || {}, ticker = lotText(b.ticker, 12).toUpperCase(), company = lotText(b.company, 120);
   const broker = lotText(b.broker, 40), status = lotText(b.status || 'WATCHLIST', 20).toUpperCase();
   const planned = lotNumber(b.plannedUsd);
@@ -2850,6 +2912,9 @@ app.post('/api/lottery', async (req, res) => {
   if (!LOTTERY_BROKERS.includes(broker)) return res.status(400).json({ error: 'broker_must_be_etoro_or_trading_212' });
   if (!['WATCHLIST', 'CANDIDATE'].includes(status)) return res.status(400).json({ error: 'new_ticket_must_start_as_watchlist_or_candidate', note: 'ACTIVE is only created by the manual activation transition.' });
   if (planned == null || planned <= 0) return res.status(400).json({ error: 'positive_planned_usd_required' });
+  if (planned < LOTTERY_MIN_USD || planned > LOTTERY_MAX_USD)
+    return res.status(400).json({ error: 'planned_usd_out_of_range', min: LOTTERY_MIN_USD, max: LOTTERY_MAX_USD, supplied: planned,
+      note: `A Lottery Ticket is approximately USD 100. Planned capital must be between USD ${LOTTERY_MIN_USD} and USD ${LOTTERY_MAX_USD}.` });
   const now = new Date().toISOString();
   const ticket = {
     id: crypto.randomUUID(), created_at: now, updated_at: now, ticker, company, broker, status,
@@ -2859,20 +2924,48 @@ app.post('/api/lottery', async (req, res) => {
     units: null, allocated_usd: null, current_price: null, current_price_at: null,
     exit_date: null, exit_price: null, exit_reason: null
   };
+  let store;
+  try { store = await lotReadStore(); }
+  catch (e) { return lotStoreUnavailable(res, 'lottery:create:read', e); }
+
+  /* A second record for a ticker already in the registry is a top-up wearing a new id:
+   * two ACTIVE rows for one company is averaging down by another route. Refused whatever
+   * state the existing record is in, so an ARCHIVED ticket cannot be quietly re-entered. */
+  const clash = store.tickets.find(t => String(t.ticker || '').toUpperCase() === ticker);
+  if (clash) return res.status(409).json({ error: 'duplicate_ticker', ticker,
+    existingTicket: { id: clash.id, ticker: clash.ticker, company: clash.company, status: clash.status,
+      entry_date: clash.entry_date || null, entry_month: clash.entry_month || null },
+    existingStatus: clash.status, backend: store.backend,
+    note: 'This ticker is already in the Lottery registry. A second record would be a disguised top-up; adding to an existing position is not a supported action.' });
+
   try {
-    const store = await lotReadStore();
     const saved = await lotInsertStore(ticket, store.backend);
     res.status(201).json({ saved: lotPublic(saved), backend: store.backend, rules: LOTTERY_RULES, ts: Date.now() });
-  } catch (e) { logUpstream('lottery:create', e); res.status(502).json({ error: 'lottery_write_failed' }); }
+  } catch (e) {
+    logUpstream('lottery:create', e);
+    const dupe = /409|23505|duplicate|unique/i.test(String((e && e.message) || e));
+    res.status(dupe ? 409 : 502).json({ error: dupe ? 'duplicate_ticker' : 'lottery_write_failed', ticker, backend: store.backend,
+      note: dupe ? 'The database rejected this ticker as already present in the Lottery registry.'
+                 : 'The durable Lottery registry did not accept the write. Nothing was recorded, and nothing was written to temporary storage.' });
+  }
 });
 
 app.patch('/api/lottery/:id', async (req, res) => {
+  if (lotTzGuard(res)) return;
   const id = String(req.params.id || '');
   if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'bad_ticket_id' });
   const b = req.body || {}, action = lotText(b.action, 20).toLowerCase();
+
+  /* Named explicitly rather than falling through to unknown_action, so the refusal states
+   * the rule instead of looking like a typo. There is no top-up route and there never will
+   * be one: once a ticket is ACTIVE its entry price, units and capital are immutable. */
+  if (['topup', 'top_up', 'add', 'addunits', 'increase', 'average', 'averagedown', 'average_down'].includes(action))
+    return res.status(409).json({ error: 'top_ups_not_supported', backend: lotBackend(),
+      note: 'Adding to a Lottery position is averaging down and is not a supported action. Entry price, units and allocated capital are immutable once the ticket is ACTIVE.' });
+
   let store, ticket;
   try { store = await lotReadStore(); ticket = store.tickets.find(t => t.id === id); }
-  catch (e) { logUpstream('lottery:update:read', e); return res.status(502).json({ error: 'lottery_store_unavailable' }); }
+  catch (e) { return lotStoreUnavailable(res, 'lottery:update:read', e); }
   if (!ticket) return res.status(404).json({ error: 'ticket_not_found' });
   const now = new Date().toISOString(), change = { updated_at: now };
 
@@ -2883,13 +2976,21 @@ app.patch('/api/lottery/:id', async (req, res) => {
     if (ticket.status !== 'CANDIDATE') return res.status(409).json({ error: 'only_candidate_can_be_activated' });
     if (!ticket.thesis || !ticket.failure_condition || !ticket.objective)
       return res.status(409).json({ error: 'research_record_incomplete', note: 'Thesis, failure condition and long-term objective are all required before a manual buy can be recorded.' });
-    const entryDate = lotIsoDate(b.entryDate), entryPrice = lotNumber(b.entryPrice), units = lotNumber(b.units), allocated = lotNumber(b.allocatedUsd);
-    if (!entryDate) return res.status(400).json({ error: 'valid_entry_date_required' });
+    const resolved = lotResolveEntryDate(b.entryDate);
+    if (resolved.error) return res.status(resolved.error === 'valid_entry_date_required' ? 400 : 409)
+      .json(Object.assign({ backend: store.backend }, resolved));
+    const entryDate = resolved.date;
+    const entryPrice = lotNumber(b.entryPrice), units = lotNumber(b.units), allocated = lotNumber(b.allocatedUsd);
     if (entryPrice == null || entryPrice <= 0 || units == null || units <= 0 || allocated == null || allocated <= 0)
       return res.status(400).json({ error: 'positive_entry_price_units_and_allocated_usd_required' });
+    if (allocated < LOTTERY_MIN_USD || allocated > LOTTERY_MAX_USD)
+      return res.status(400).json({ error: 'allocated_usd_out_of_range', min: LOTTERY_MIN_USD, max: LOTTERY_MAX_USD, supplied: allocated,
+        note: `A Lottery Ticket is approximately USD 100. Allocated capital must be between USD ${LOTTERY_MIN_USD} and USD ${LOTTERY_MAX_USD}.` });
+    /* Derived from the server date, never from lotMonthOf(client input). */
     const month = lotMonthOf(entryDate);
     const used = store.tickets.find(t => t.id !== id && (t.entry_month || lotMonthOf(t.entry_date)) === month);
     if (used) return res.status(409).json({ error: 'monthly_execution_limit', month, existingTicket: used.ticker,
+      backend: store.backend, timezone: LOTTERY_TZ,
       note: 'Only one new Lottery Ticket execution is allowed per calendar month.' });
     Object.assign(change, { status: 'ACTIVE', entry_date: entryDate, entry_month: month,
       entry_price: +entryPrice.toFixed(8), units: +units.toFixed(8), allocated_usd: +allocated.toFixed(2),
@@ -2926,9 +3027,13 @@ app.patch('/api/lottery/:id', async (req, res) => {
       backend: store.backend, ts: Date.now() });
   } catch (e) {
     logUpstream('lottery:update:write', e);
-    const monthly = action === 'activate' && /409|duplicate|unique/i.test(String((e && e.message) || e));
+    /* The API check above is the readable refusal; this is the database closing the
+     * simultaneous-request race that no API-level check can close. */
+    const monthly = action === 'activate' && /409|23505|duplicate|unique/i.test(String((e && e.message) || e));
     res.status(monthly ? 409 : 502).json({ error: monthly ? 'monthly_execution_limit' : 'lottery_write_failed',
-      note: monthly ? 'Only one new Lottery Ticket execution is allowed per calendar month.' : undefined });
+      backend: store.backend, timezone: monthly ? LOTTERY_TZ : undefined,
+      note: monthly ? 'Only one new Lottery Ticket execution is allowed per calendar month. The database unique index refused this write.'
+                    : 'The durable Lottery registry did not accept the write. Nothing was recorded, and nothing was written to temporary storage.' });
   }
 });
 
