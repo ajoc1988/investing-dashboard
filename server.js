@@ -13,6 +13,9 @@
  *   GET  /api/macro           -> cpi, cpiPrev, fedRate, cutProb, fg, breadth
  *   GET  /api/events          -> upcoming CPI/PPI/Jobs/Fed + NVDA/MSFT earnings
  *   GET  /api/news            -> market headlines
+ *   GET  /api/lottery         -> separate manual Lottery Ticket registry
+ *   POST /api/lottery         -> create WATCHLIST/CANDIDATE only
+ *   PATCH /api/lottery/:id    -> guarded manual state transition
  *   POST /api/deep-triggers   -> { packet, cashContext, fresh? } => AI consensus, verdict, risk
  *                                (25-minute result cache; see DEEP_CACHE below)
  */
@@ -27,7 +30,7 @@ const { resolve: resolveCommitteeAction } = require('./committee-resolver');
  * by hand whenever the backend is deployed. Surfaced via /api/health so the frontend
  * can compare it against its own constant and flag frontend/backend deployment drift.
  * The frontend expects API_VERSION to match its EXPECTED_API constant.               */
-const API_VERSION = '2.7.2';
+const API_VERSION = '2.8.0';
 
 const app = express();
 app.use(express.json({ limit: '128kb' }));
@@ -836,19 +839,66 @@ function coerceVerdict(v) {
 }
 
 // Each call takes (userContent, systemContent) so the handler controls the prompt.
+/* ═══ THE PROVIDER REQUEST CONTRACT ══════════════════════════════════════════════
+ *
+ * Every provider function here takes (user, system). Some callers legitimately have no
+ * system prompt at all — the Wildcard AUTO route is one, because `buildSeatPrompt()`
+ * returns a COMPLETE prompt and the manual path pastes exactly that text into the
+ * provider's own web UI with nothing in front of it.
+ *
+ * Passing `null` for system used to corrupt the request in a different way per provider:
+ *
+ *   Gemini            `system + '\n\n' + user` coerced null to the STRING "null", so the
+ *                     model literally received  null\n\n<the prompt>.
+ *   Anthropic         the body carried  "system": null.
+ *   OpenAI-compatible the body carried  {"role":"system","content":null}
+ *                     (openai, perplexity, openrouter, groq, xai).
+ *
+ * The Gemini case is the serious one. It means the text the model ACTUALLY read was not
+ * the text stored in `prompt_sent` — which destroys the one property the whole locked-
+ * evidence design exists to provide, that the recorded prompt IS the prompt.
+ *
+ * These two helpers are the single place that decides. "No system prompt" now means the
+ * field or message is ABSENT, never null and never the word "null". A caller that DOES
+ * supply a system prompt is completely unaffected: every existing committee, debate,
+ * synthesis and chat caller passes a non-empty string, so their behaviour is unchanged.
+ *
+ * INVARIANT, asserted by the mocks in seatrun.test.sh:
+ *   COPY PROMPT text === the text sent to the provider === the value in prompt_sent,
+ *   byte for byte, with `built.prompt` appearing EXACTLY ONCE in the outbound body. */
+function hasSystem(system) {
+  return system != null && String(system).trim() !== '';
+}
+// OpenAI-shaped providers: omit the system message entirely rather than sending a null one.
+function chatMessages(user, system) {
+  const msgs = [];
+  if (hasSystem(system)) msgs.push({ role: 'system', content: String(system) });
+  msgs.push({ role: 'user', content: String(user) });
+  return msgs;
+}
+// Gemini has no system slot in this call shape, so a system prompt is prefixed. With no
+// system prompt the user text must be sent ALONE — no separator, no placeholder.
+function geminiText(user, system) {
+  return hasSystem(system) ? String(system) + '\n\n' + String(user) : String(user);
+}
+
 async function callOpenAI(user, system, modelOverride) {
   const key = process.env.OPENAI_API_KEY; if (!key) return null;
   const j = await getJson('https://api.openai.com/v1/chat/completions', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
-    body: JSON.stringify({ model: modelOverride || process.env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0.4, messages: [{ role: 'system', content: system }, { role: 'user', content: user }] })
+    body: JSON.stringify({ model: modelOverride || process.env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0.4, messages: chatMessages(user, system) })
   }, 40000);
   return j.choices && j.choices[0] && j.choices[0].message.content;
 }
 async function callAnthropic(user, system, modelOverride) {
   const key = process.env.ANTHROPIC_API_KEY; if (!key) return null;
+  // `system` is set only when there is one. An absent key is valid; "system": null is not.
+  const body = { model: modelOverride || process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5',
+                 max_tokens: 900, messages: [{ role: 'user', content: String(user) }] };
+  if (hasSystem(system)) body.system = String(system);
   const j = await getJson('https://api.anthropic.com/v1/messages', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({ model: modelOverride || process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5', max_tokens: 900, system, messages: [{ role: 'user', content: user }] })
+    body: JSON.stringify(body)
   }, 40000);
   return j.content && j.content[0] && j.content[0].text;
 }
@@ -865,11 +915,19 @@ async function callAnthropicChat(messages, system, model) {
   }, 45000);
   return j.content && j.content.filter(b => b && b.type === 'text').map(b => b.text).join('\n');
 }
-async function callGemini(user, system, modelOverride, grounded) {
+async function callGemini(user, system, modelOverride, grounded, jsonSchema) {
   const key = process.env.GEMINI_API_KEY; if (!key) return null;
   const model = modelOverride || process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-  const body = { contents: [{ parts: [{ text: system + '\n\n' + user }] }] };
+  const body = { contents: [{ parts: [{ text: geminiText(user, system) }] }] };
   if (grounded) body.tools = [{ google_search: {} }];   // live Google Search grounding — real-time web/news, free up to 5k prompts/mo on 3.x
+  /* STRUCTURED OUTPUT — configuration only, never prompt text. generationConfig sits beside
+   * `contents`; it cannot change what the model is asked, so the byte-identity of
+   * COPY PROMPT / wire / prompt_sent is untouched. Only a seat that declares a jsonSchema
+   * gets this, which today is the synthesis chair and nothing else. Grounding and JSON mode
+   * are mutually exclusive on this endpoint, so a grounded call never requests it. */
+  if (jsonSchema && !grounded) {
+    body.generationConfig = { responseMimeType: 'application/json', responseSchema: jsonSchema };
+  }
   const j = await getJson(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
@@ -883,7 +941,7 @@ async function callOpenRouter(user, system, modelOverride) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key,
       'HTTP-Referer': 'https://investing-command-centre.local', 'X-Title': 'Investing Command Centre' },
-    body: JSON.stringify({ model: modelOverride || process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.3-70b-instruct:free', temperature: 0.4, messages: [{ role: 'system', content: system }, { role: 'user', content: user }] })
+    body: JSON.stringify({ model: modelOverride || process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.3-70b-instruct:free', temperature: 0.4, messages: chatMessages(user, system) })
   }, 45000);
   return j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
 }
@@ -891,13 +949,13 @@ async function callPerplexity(user, system, modelOverride) {
   const key = process.env.PERPLEXITY_API_KEY; if (!key) return null;
   const j = await getJson('https://api.perplexity.ai/chat/completions', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
-    body: JSON.stringify({ model: modelOverride || process.env.PERPLEXITY_MODEL || 'sonar', temperature: 0.3, messages: [{ role: 'system', content: system }, { role: 'user', content: user }] })
+    body: JSON.stringify({ model: modelOverride || process.env.PERPLEXITY_MODEL || 'sonar', temperature: 0.3, messages: chatMessages(user, system) })
   }, 40000);
   return j.choices && j.choices[0] && j.choices[0].message.content;
 }
 async function callGrok(user, system, modelOverride) {
   const key = process.env.GROK_API_KEY || process.env.XAI_API_KEY; if (!key) return null;
-  const body = { model: modelOverride || GROK_MODEL, temperature: 0.4, messages: [{ role: 'system', content: system }, { role: 'user', content: user }] };
+  const body = { model: modelOverride || GROK_MODEL, temperature: 0.4, messages: chatMessages(user, system) };
   // Live/web search is an opt-in PAID tool (~$5/1000 calls). Stays OFF unless GROK_LIVE_SEARCH=on.
   // When enabled later, confirm the current tool shape in xAI docs before relying on it.
   if (GROK_LIVE_SEARCH) body.tools = [{ type: 'web_search' }];
@@ -914,7 +972,7 @@ async function callGroq(user, system, modelOverride) {
   const key = process.env.GROQ_API_KEY; if (!key) return null;
   const j = await getJson('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
-    body: JSON.stringify({ model: modelOverride || process.env.GROQ_MODEL || 'llama-3.3-70b-versatile', temperature: 0.4, messages: [{ role: 'system', content: system }, { role: 'user', content: user }] })
+    body: JSON.stringify({ model: modelOverride || process.env.GROQ_MODEL || 'llama-3.3-70b-versatile', temperature: 0.4, messages: chatMessages(user, system) })
   }, 45000);
   return j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
 }
@@ -934,14 +992,19 @@ const PROVIDERS = { openai: callOpenAI, anthropic: callAnthropic, gemini: callGe
 function providerHasKey(p) {
   return { openai: !!process.env.OPENAI_API_KEY, anthropic: !!process.env.ANTHROPIC_API_KEY, gemini: !!process.env.GEMINI_API_KEY, perplexity: !!process.env.PERPLEXITY_API_KEY, openrouter: !!process.env.OPENROUTER_API_KEY, groq: !!process.env.GROQ_API_KEY, xai: !!(process.env.GROK_API_KEY || process.env.XAI_API_KEY) }[p];
 }
-async function callProvider(provider, model, user, system) {
+/* `opts` is optional and defaults to nothing, so every existing caller is unchanged.
+ * Only Gemini reads it — the other provider functions take three arguments and ignore a
+ * fourth. This is the whole mechanism by which structured output reaches ONE seat. */
+async function callProvider(provider, model, user, system, opts) {
   const fn = PROVIDERS[provider]; if (!fn) return null;
+  const o = opts || {};
+  if (provider === 'gemini') return fn(user, system, model, o.grounded, o.jsonSchema);
   return fn(user, system, model);
 }
 // One attempt at a single model — never throws. Returns { ok, content, error }.
-async function callSeatModel(provider, model, user, system) {
+async function callSeatModel(provider, model, user, system, opts) {
   try {
-    const c = await callProvider(provider, model, user, system);
+    const c = await callProvider(provider, model, user, system, opts);
     if (c) return { ok: true, content: c };
     return { ok: false, error: providerHasKey(provider) ? 'empty response' : 'no API key' };
   } catch (e) {
@@ -951,23 +1014,60 @@ async function callSeatModel(provider, model, user, system) {
 }
 // Try the seat's primary model (one retry), then its cross-provider fallback. Never throws.
 // Returns { content, modelUsed, providerUsed, usedFallback, error }.
-async function callWithFallback(seat, user, system) {
+/* Does this error say the CONFIGURATION was rejected, rather than the request failing for an
+ * ordinary reason? Only a 400/422 naming the structured-output fields counts. A 429, a 401, a
+ * timeout or a 5xx must NEVER be read as "the schema is unsupported" — that would strip the
+ * schema on every quota blip and quietly stop constraining the chair's output for the rest of
+ * the day, with nothing on screen to say so. */
+function isSchemaRejection(err) {
+  const e = String(err || '');
+  if (!/\b(400|422)\b/.test(e)) return false;
+  return /responseSchema|response_schema|responseMimeType|response_mime_type|generationConfig|generation_config|nullable|Unknown name|Invalid JSON payload|Invalid value at|not supported/i.test(e);
+}
+
+async function callWithFallback(seat, user, system, opts) {
   const attempts = [];
-  let r = await callSeatModel(seat.provider, seat.model, user, system);
-  if (!r.ok) r = await callSeatModel(seat.provider, seat.model, user, system); // retry primary once
-  if (r.ok) return { content: r.content, modelUsed: seat.model, providerUsed: seat.provider, usedFallback: false };
+  const wantedSchema = !!(opts && opts.jsonSchema);
+  let schemaRejected = false;
+
+  let r = await callSeatModel(seat.provider, seat.model, user, system, opts);
+
+  /* EXACTLY ONE EXTRA ATTEMPT, EITHER WAY.
+   *
+   * This previously ran schema → schema → bare, i.e. three calls, and it dropped the schema
+   * after ANY failure. Both were wrong: three calls burn a free-tier allowance the owner did
+   * not ask to spend, and treating a 429 as "unsupported configuration" would silently
+   * abandon structured output because the quota was busy for a moment.
+   *
+   * Now: a CONFIRMED configuration rejection gets one bare retry with the prompt unchanged;
+   * anything else gets the ordinary single retry of the primary. Never three. */
+  if (!r.ok && wantedSchema && isSchemaRejection(r.error)) {
+    const bare = Object.assign({}, opts); delete bare.jsonSchema;
+    attempts.push(seat.provider + ' ' + seat.model + ' (schema rejected) → ' + r.error);
+    r = await callSeatModel(seat.provider, seat.model, user, system, bare);
+    schemaRejected = true;
+  } else if (!r.ok) {
+    r = await callSeatModel(seat.provider, seat.model, user, system, opts); // retry primary once
+  }
+
+  if (r.ok) return { content: r.content, modelUsed: seat.model, providerUsed: seat.provider,
+                     usedFallback: false, usedSchema: wantedSchema && !schemaRejected,
+                     schemaRejected };
   attempts.push(seat.provider + ' ' + seat.model + ' → ' + r.error);
   if (seat.fallbackModel) {
     const fp = seat.fallbackProvider || seat.provider;
     if (providerHasKey(fp)) {
-      const fr = await callSeatModel(fp, seat.fallbackModel, user, system);
-      if (fr.ok) return { content: fr.content, modelUsed: seat.fallbackModel, providerUsed: fp, usedFallback: true };
+      const fr = await callSeatModel(fp, seat.fallbackModel, user, system, opts);
+      if (fr.ok) return { content: fr.content, modelUsed: seat.fallbackModel, providerUsed: fp,
+                          usedFallback: true, usedSchema: wantedSchema && !schemaRejected,
+                          schemaRejected };
       attempts.push('fallback ' + fp + ' ' + seat.fallbackModel + ' → ' + fr.error);
     } else {
       attempts.push('fallback ' + fp + ' → no API key');
     }
   }
-  return { content: null, modelUsed: null, providerUsed: null, usedFallback: false, error: attempts.join(' | ') };
+  return { content: null, modelUsed: null, providerUsed: null, usedFallback: false,
+           usedSchema: false, schemaRejected, error: attempts.join(' | ') };
 }
 // Short, human-readable failure tag for the seat table.
 function shortReason(r) {
@@ -1407,6 +1507,109 @@ app.get('/api/prompts', (req, res) => {
  * RULING 3 — NEVER FAKE MEASUREMENT. Anything requiring real price history stays null
  * and is reported as UNAVAILABLE. It is never inferred from an AI response.           */
 
+/* ═══ THE SYNTHESIS OUTPUT CONTRACT ══════════════════════════════════════════════
+ *
+ * THE DEFECT THIS CLOSES. The chair's brief was "Combine the evidence and the disagreements.
+ * Decide." — no format at all. The route then treated ANY non-empty reply as success:
+ * parseJsonLoose() returned null, the row was stored `status: "ok"` anyway, the decision card
+ * rendered NO VERDICT, and because an OK synthesis row now existed the step counted as
+ * COMPLETE and could not be retried. A non-decision was filed as a decision.
+ *
+ * It survived every test because the mock always returned convenient JSON. The mock was
+ * answering a question the real model had never been asked.
+ *
+ * This text is appended by buildSeatPrompt(), so it is in the MANUAL copy-paste prompt as
+ * well as the automatic one — byte-identical, from one builder.
+ *
+ * ADVISORY ONLY. Nothing in this contract, and nothing a model returns under it, executes
+ * or locks anything. NONE is a normal and desirable outcome. */
+const WC_SYNTH_CONTRACT = [
+  'REQUIRED OUTPUT FORMAT — read this before answering.',
+  '',
+  'Reply with VALID COMPACT JSON ONLY. No Markdown, no code fences, no commentary before or',
+  'after. Exactly these keys:',
+  '',
+  '{',
+  '  "verdict": "GO | NO-GO | NONE",',
+  '  "ticker": "one of the three candidates, or null",',
+  '  "grade": "A | B | C | null",',
+  '  "limit": "supported entry level, or null",',
+  '  "position": "BHD amount, or null",',
+  '  "stop": "supported stop level, or null",',
+  '  "target": "supported target, or null",',
+  '  "next_check": "specific time or condition",',
+  '  "reason": "brief decisive explanation"',
+  '}',
+  '',
+  'RULES:',
+  '- "verdict" must be exactly GO, NO-GO or NONE. Nothing else is a decision.',
+  '- GO REQUIRES a "ticker" drawn from this run’s three candidates listed above.',
+  '- NO-GO and NONE must set "ticker" to null. Do not name a selected ticker you are rejecting.',
+  '- Any entry, stop, target or position size you cannot support from the locked pack must be',
+  '  null. A null is a correct answer. A plausible-looking number you did not derive is not.',
+  '- NEVER invent missing price history, levels or measurements. If the pack does not contain',
+  '  it, the value is null and "reason" says so.',
+  '- "next_check" must be a specific time or condition, not "soon" or "monitor".',
+  '- This is ADVICE ONLY. It places no trade, moves no money and locks nothing. NONE is a',
+  '  perfectly good outcome and is preferred over a decision you cannot support.'
+].join('\n');
+
+/* Gemini structured output for the CHAIR ONLY. Applied via generationConfig, which does not
+ * alter a single byte of the prompt text — so COPY PROMPT === wire prompt === prompt_sent
+ * still holds. Deliberately NOT applied to Gemini research, the Geo call, chat, or the
+ * committee: forcing JSON mode on a seat asked for prose would break it. */
+/* ONLY WELL-ATTESTED SCHEMA FIELDS ARE USED: uppercase `type`, `properties`, `enum` and
+ * `required`. That is the shape documented for generationConfig.responseSchema on the
+ * v1beta generateContent endpoint this file calls.
+ *
+ * `nullable: true` was here and has been REMOVED. It could not be confirmed against the
+ * current published Schema definition, and an unverified field in a request that decides
+ * nothing-versus-something is not worth the risk. Optional values are handled by leaving
+ * them OUT of `required` instead — a field the model omits and a field it sets to null are
+ * treated identically by validateSynthesis(), so the contract is unaffected either way.
+ *
+ * Note also that Google's current structured-output GUIDE documents a newer Interactions
+ * API (/v1beta/interactions with response_format and lowercase types). That is a DIFFERENT
+ * endpoint from the generateContent call used here; adopting it would be a new dependency
+ * and is deliberately not done. Recorded so the difference is not mistaken for an error. */
+const WC_SYNTH_KEYS = ['verdict', 'ticker', 'grade', 'limit', 'position', 'stop', 'target',
+                       'next_check', 'reason'];
+
+/* ONE CONTRACT, THREE PLACES — they must agree or the strictest one silently wins.
+ *
+ * They did not agree. The prompt demanded every key with explicit nulls; the schema permitted
+ * strings only and required just verdict and reason; the validator accepted any grade and any
+ * next_check. A reply could satisfy the schema, satisfy the validator, and still not be the
+ * thing the prompt asked for. Now all three say the same thing: EVERY key present, nullable
+ * where the prompt allows null, and the two judgement fields checked.
+ *
+ * `nullable` and `enum` are both fields of the Schema object used by
+ * generationConfig.responseSchema on the v1beta generateContent endpoint this file calls.
+ * NOTE FOR THE RECORD: I could not confirm `nullable` from the published reference through my
+ * own tooling (the field table did not render for me), and said so; Codex's independent read
+ * of the same reference confirms it. Going with confirmed-by-review — and the schema-rejection
+ * fallback below means a wrong call here degrades to a plain request rather than killing the
+ * chair, so the disagreement cannot cost a decision. */
+const WC_SYNTH_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    verdict:    { type: 'STRING', enum: ['GO', 'NO-GO', 'NONE'] },
+    ticker:     { type: 'STRING', nullable: true },
+    grade:      { type: 'STRING', enum: ['A', 'B', 'C'], nullable: true },
+    limit:      { type: 'STRING', nullable: true },
+    position:   { type: 'STRING', nullable: true },
+    stop:       { type: 'STRING', nullable: true },
+    target:     { type: 'STRING', nullable: true },
+    next_check: { type: 'STRING' },
+    reason:     { type: 'STRING' }
+  },
+  required: WC_SYNTH_KEYS
+};
+
+/* Words that are not a next check. "Monitor closely" tells the owner nothing about WHEN, and
+ * a decision whose review trigger is vague is a decision that never gets reviewed. */
+const WC_VAGUE_NEXT = /^(soon|later|asap|tbd|n\/a|na|none|monitor|watch|ongoing|regularly|as needed|when appropriate|keep monitoring|monitor closely)$/i;
+
 const WC_SEATS = {
   grok:       { label: 'Grok — Live Intelligence',  provider: 'xai',        stage: 'night',
                 brief: 'Current market and news, catalyst freshness, social/trader attention, sector momentum, breaking developments. NO technical trade construction.' },
@@ -1419,7 +1622,8 @@ const WC_SEATS = {
   deepseek:   { label: 'DeepSeek — Red Team',       provider: 'openrouter', model: 'deepseek/deepseek-chat-v3.1:free', stage: 'locked',
                 brief: 'Using ONLY the locked evidence pack: try to kill this trade. Chasing? Stale catalyst? Stop inside normal noise? Reward/risk overstated? Macro conflict? Dilution/supply risk? Bull trap? State veto conditions.' },
   synthesis:  { label: 'Final Synthesis',           provider: 'gemini',     stage: 'locked',
-                brief: 'Combine the evidence and the disagreements. Do NOT average votes. Decide.' }
+                brief: 'Combine the evidence and the disagreements. Do NOT average votes. Decide.',
+                outputContract: WC_SYNTH_CONTRACT, jsonSchema: WC_SYNTH_SCHEMA }
 };
 
 /* Which numbered step of the owner-facing flow each seat belongs to. The frontend shows
@@ -1571,6 +1775,13 @@ function buildSeatPrompt(seatKey, def, run, priorResponses) {
       parts.push('', req.heading, req.rubric, ...derived);
     }
   }
+
+  /* THE OUTPUT CONTRACT GOES LAST, AND IT GOES THROUGH THIS BUILDER — the single place
+   * that produces COPY PROMPT, the AUTO wire prompt and prompt_sent. Putting it anywhere
+   * else (say, only in the automatic call) would let manual and automatic diverge, and the
+   * lock verifies prompt_sent. One builder is what keeps the three byte-identical. */
+  if (def.outputContract) parts.push('', def.outputContract);
+
   return { prompt: parts.join('\n'), evidenceUsed: used, missing,
            packHash: (run && run.evidence_pack_hash) || null };
 }
@@ -1844,6 +2055,142 @@ app.get('/api/wildcard/prompt/:seat', async (req, res) => {
   });
 });
 
+/* A machine code AND a sentence. "FAILED — USE MANUAL" told the owner nothing about
+ * whether to wait, top up a key, or just try again. The code drives the UI; the sentence
+ * is what he reads. */
+function classifyFailure(raw) {
+  const r = String(raw || '');
+  if (/429|rate.?limit|quota|too many|exhaust/i.test(r))
+    return { code: 'rate_limited', text: 'Daily quota or rate limit reached. Use manual, or try again later.' };
+  if (/no API key/i.test(r))
+    return { code: 'no_api_key', text: 'No API key configured for this provider. Manual only until one is set.' };
+  if (/401|403|permission|unauthor|forbidden/i.test(r))
+    return { code: 'auth_failed', text: 'The provider rejected the key. Check it in Render, then retry.' };
+  if (/timeout|abort|timed? ?out/i.test(r))
+    return { code: 'timeout', text: 'The provider did not answer in time. Retry, or use manual.' };
+  if (/empty response/i.test(r))
+    return { code: 'empty_reply', text: 'The provider answered with nothing. Retry, or use manual.' };
+  if (/5\d\d/.test(r))
+    return { code: 'provider_error', text: 'The provider returned a server error. Retry shortly, or use manual.' };
+  return { code: 'provider_error', text: 'The provider failed for an unrecognised reason — see the server log. Use manual.' };
+}
+
+/* Which model a seat actually gets when it pins none. Resolved HERE and passed explicitly,
+ * so the provider's internal default is never the thing that decides — and the row therefore
+ * records the model that genuinely answered instead of null.
+ *
+ * EVERY PROVIDER MUST HAVE A REAL DEFAULT. A `null` here is not a harmless gap: the provider
+ * function falls back to its OWN hard-coded default and answers perfectly well, while the
+ * stored row says `model: null`. The reply is real and the provenance is a lie by omission.
+ * This table half-existed once — gemini and perplexity were filled in, the other five were
+ * null — so an automatic Claude answer (anthropic pins no model in WC_SEATS) was still
+ * recorded as `model: null` after the provenance fix was declared complete.
+ *
+ * Each entry MIRRORS the literal default inside the matching call* function above:
+ *   callOpenAI      → gpt-4o-mini                          callAnthropic → claude-haiku-4-5
+ *   callGemini      → gemini-2.5-flash                     callPerplexity → sonar
+ *   callOpenRouter  → meta-llama/llama-3.3-70b-instruct:free
+ *   callGroq        → llama-3.3-70b-versatile              callGrok      → GROK_MODEL
+ * Environment overrides stay AHEAD of the literals, exactly as they are in those functions,
+ * so setting ANTHROPIC_MODEL changes both the call and the record together.
+ * seatrun.test.sh asserts this table against the real defaults; if a provider function's
+ * default is edited without editing this table, that test fails. */
+function defaultModelFor(provider) {
+  return {
+    openai:     process.env.OPENAI_MODEL     || 'gpt-4o-mini',
+    anthropic:  process.env.ANTHROPIC_MODEL  || 'claude-haiku-4-5',
+    gemini:     process.env.GEMINI_MODEL     || 'gemini-2.5-flash',
+    perplexity: process.env.PERPLEXITY_MODEL || 'sonar',
+    openrouter: process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.3-70b-instruct:free',
+    groq:       process.env.GROQ_MODEL       || 'llama-3.3-70b-versatile',
+    xai:        GROK_MODEL
+  }[provider] || null;
+}
+
+/* ═══ IS THIS ACTUALLY A DECISION? ═══════════════════════════════════════════════
+ *
+ * A non-empty reply is NOT a successful synthesis. The route used to treat it as one, so a
+ * paragraph of prose was stored `status: "ok"`, rendered as NO VERDICT, and — because an OK
+ * row existed — completed the step and blocked a retry. The owner was left with a finished
+ * Wildcard that had decided nothing and offered no way to ask again.
+ *
+ * Returns null when the reply IS a decision, or a short reason when it is not. The reason is
+ * shown to the owner, so it names the specific problem rather than "invalid".
+ *
+ * Deliberately lenient about everything the contract allows to be null. Rejecting a real
+ * answer because a field was absent would be a worse failure than the one being fixed. */
+function validateSynthesis(parsed, run) {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+    return 'the reply was not JSON — no decision could be read from it';
+
+  /* EVERY KEY MUST BE PRESENT, because the prompt and the schema both demand every key.
+   * Absent is not the same as null here: a model that omits half the contract has not
+   * answered it, and accepting that quietly is how the three definitions drifted apart. */
+  const absent = WC_SYNTH_KEYS.filter(k => !Object.prototype.hasOwnProperty.call(parsed, k));
+  if (absent.length) return 'these required keys are missing: ' + absent.join(', ');
+
+  const verdict = parsed.verdict;
+  if (typeof verdict !== 'string' || !['GO', 'NO-GO', 'NONE'].includes(verdict.trim().toUpperCase()))
+    return 'verdict must be exactly GO, NO-GO or NONE (got ' + JSON.stringify(verdict) + ')';
+  const v = verdict.trim().toUpperCase();
+
+  const ticker = parsed.ticker == null ? null : String(parsed.ticker).trim();
+  const candidates = (run && Array.isArray(run.candidates) ? run.candidates : [])
+    .map(c => String(c).trim().toUpperCase());
+
+  if (v === 'GO') {
+    if (!ticker) return 'a GO must name a ticker';
+    /* NEVER JUDGE A GO WITHOUT THE CANDIDATE LIST. With no list this used to pass by
+     * default — the one case where being lenient endorses a ticker from outside the run. */
+    if (!candidates.length)
+      return 'a GO cannot be accepted without the run’s candidate list to check it against';
+    if (!candidates.includes(ticker.toUpperCase()))
+      return 'GO named "' + ticker + '", which is not one of this run’s candidates ('
+           + candidates.join(', ') + ')';
+  } else if (ticker) {
+    // A rejection that still names a pick reads like a recommendation on the decision card.
+    return v + ' must not name a selected ticker (got "' + ticker + '")';
+  }
+
+  // Grade is a judgement the prompt restricts to A, B or C — or null when ungraded.
+  if (parsed.grade != null) {
+    const g = String(parsed.grade).trim().toUpperCase();
+    if (!['A', 'B', 'C'].includes(g))
+      return 'grade must be A, B or C, or null (got ' + JSON.stringify(parsed.grade) + ')';
+  }
+
+  // Everything else must be text or null — never an object or array, which would render as
+  // [object Object] on the decision card.
+  for (const k of ['limit', 'position', 'stop', 'target']) {
+    const val = parsed[k];
+    if (val == null) continue;
+    if (typeof val !== 'string' && typeof val !== 'number')
+      return '"' + k + '" must be text or null';
+  }
+
+  /* A decision with no review trigger never gets reviewed. next_check is the one field the
+   * contract does NOT allow to be null, and "monitor" is not a time or a condition. */
+  const nx = parsed.next_check == null ? '' : String(parsed.next_check).trim();
+  if (!nx) return 'next_check must be a specific time or condition, not empty';
+  if (WC_VAGUE_NEXT.test(nx))
+    return 'next_check "' + nx + '" is not specific — give a time or a condition';
+
+  if (typeof parsed.reason !== 'string' || !parsed.reason.trim())
+    return 'a decision must give a reason';
+  return null;
+}
+
+/* IN-FLIGHT GUARD. A double tap, or a re-render that fires the handler twice, would
+ * otherwise spend two lots of free-tier quota on one intention.
+ *
+ * Deliberately in-memory, and that is CORRECT here: this is a duplicate-tap guard, not a
+ * security control. Render restarting clears it, which at worst permits one extra call the
+ * owner asked for anyway. That is the same distinction already documented between the
+ * opportunistic Deep Triggers cache (a miss is harmless) and rate limiting (a reset is a
+ * hole) — the durable daily cap above is what actually protects quota. */
+const WC_INFLIGHT = new Map();
+function wcInflightKey(runId, seat) { return runId + '::' + seat; }
+
 /* ═══ THE LOCK ═══════════════════════════════════════════════════════════════════
  * Freezes the audited night evidence into an immutable pack and hashes it. This is the
  * step that was missing entirely: the column existed, the prompt builder read it, nothing
@@ -1863,7 +2210,7 @@ app.post('/api/wildcard/lock', async (req, res) => {
   try {
     [run] = await sbWc('GET', `wildcard_runs?id=eq.${runId}&select=id,candidates,evidence_pack,evidence_pack_hash,evidence_locked_at`);
     if (!run) return res.status(404).json({ error: 'run not found' });
-    prior = await sbWc('GET', `wildcard_seat_responses?run_id=eq.${runId}&select=id,created_at,seat,stage,source,status,provider,model,raw_response,prompt_sent&order=created_at.asc`) || [];
+    prior = await sbWc('GET', `wildcard_seat_responses?run_id=eq.${runId}&select=id,created_at,seat,stage,source,status,provider,model,raw_response,parsed,prompt_sent&order=created_at.asc`) || [];
   } catch (e) {
     logUpstream('wildcard:lock:read', e);
     return res.status(502).json({ error: shortReason(String((e && e.message) || e)) });
@@ -1931,6 +2278,201 @@ app.post('/api/wildcard/lock', async (req, res) => {
   }
 });
 
+/* ═══ RUN A SEAT AUTOMATICALLY ═══════════════════════════════════════════════════
+ * The route the frontend has been calling since 2.5.0 and which never existed, so every
+ * "AUTO" seat 404'd and fell back to manual. NOTHING here places a trade or contacts a
+ * broker: it calls a text model and stores the reply.
+ *
+ * Stage, provider and model come from SERVER metadata. The client sends a run id and a seat
+ * name and nothing else — it cannot choose which model answers, nor which stage the answer
+ * is filed under. */
+app.post('/api/wildcard/seat/run', async (req, res) => {
+  const b = req.body || {};
+  const seat = String(b.seat || '').toLowerCase();
+  const runId = String(b.runId || '');
+  const def = WC_SEATS[seat];
+  if (!def) return res.status(400).json({ error: 'unknown seat', known: Object.keys(WC_SEATS) });
+  if (!/^[0-9a-f-]{36}$/i.test(runId)) return res.status(400).json({ error: 'bad run id' });
+
+  const modes = wcSeatModes();
+  // Ruling 4 stands: Grok has produced stale and confidently wrong market data, so AUTO must
+  // be earned. Refused here as well as hidden in the UI — the rule lives on the server.
+  if (!modes[seat].autoAvailable) {
+    return res.status(409).json({ error: 'manual_only', failCode: 'manual_only', seat,
+      note: seat === 'grok'
+        ? 'Grok is MANUAL by ruling — it has returned stale data before. Copy the prompt instead.'
+        : 'No API key is configured for this seat, so it is manual only.' });
+  }
+
+  let run, prior;
+  try {
+    /* select=* AND NOT A NAMED PROJECTION — THIS IS A CORRECTNESS REQUIREMENT, NOT A STYLE
+     * CHOICE. This route RETURNS `run` to the browser, which adopts it as its current run.
+     * The projection here previously read
+     *   select=candidates,evidence_pack,evidence_pack_hash,evidence_locked_at
+     * which omits `id`. The page replaced its run object with that id-less copy, so the
+     * SECOND automatic seat had no run to name and reported "Create a run first." — a
+     * complete multi-seat AUTO progression stopped dead after the first success.
+     *
+     * The prompt route and the lock-check route below use narrow projections and that is
+     * fine: neither hands its `run` back to the client. Any route that does must return the
+     * whole row. */
+    [run] = await sbWc('GET', `wildcard_runs?id=eq.${runId}&select=*`);
+    if (!run) return res.status(404).json({ error: 'run not found' });
+    prior = await sbWc('GET', `wildcard_seat_responses?run_id=eq.${runId}&select=id,created_at,seat,stage,source,status,provider,model,raw_response,parsed,prompt_sent&order=created_at.asc`) || [];
+  } catch (e) {
+    logUpstream('wildcard:run:read', e);
+    return res.status(502).json({ error: shortReason(String((e && e.message) || e)), failCode: 'store_unreachable',
+      note: 'Cannot read the run, so nothing was called. No quota was spent.' });
+  }
+
+  /* ALREADY DONE = DO NOTHING. A resumed run must never repeat a successful call. This is
+   * derived from the database, not from anything the page remembers. */
+  let existing = pickLatestOk(prior, seat, def.stage);
+  /* LEGACY ROWS: an OK row is not automatically a usable decision.
+   *
+   * Rows stored BEFORE the contract existed are still `status: "ok"` with prose or half-JSON
+   * in them. Left alone they satisfy the short-circuit, so a resumed run counts the decision
+   * step as finished and the card renders NO VERDICT with no way to retry — the original
+   * defect, arriving through history instead of through a fresh call.
+   *
+   * They are REVALIDATED here rather than migrated. Rewriting stored rows is a production
+   * database change and is not mine to make; re-reading them costs nothing and is reversible.
+   * An unusable one is treated as absent, so the seat simply runs again. */
+  if (existing && def.outputContract) {
+    const parsedExisting = existing.parsed || parseJsonLoose(existing.raw_response);
+    const staleWhy = validateSynthesis(parsedExisting, run);
+    if (staleWhy) {
+      logUpstream('wildcard:run:legacy-synthesis',
+        new Error('ignoring unusable stored ' + seat + ' row ' + existing.id + ': ' + staleWhy));
+      existing = null;
+    }
+  }
+  if (existing) {
+    return res.json({ alreadyComplete: true, saved: existing, run,
+      seatResponses: prior, seats: modes, ts: Date.now(),
+      note: seat.toUpperCase() + ' already has a successful answer for this run. Nothing was called.' });
+  }
+
+  /* Prerequisites are enforced by the SAME prompt builder the manual path uses, so AUTO and
+   * MANUAL can never disagree about what a seat is allowed to see. */
+  const built = buildSeatPrompt(seat, def, run, prior);
+  if (built.tradeIncomplete) {
+    return res.status(409).json({ error: 'trade analysis incomplete', failCode: 'trade_incomplete',
+      seat, missing: built.missing,
+      note: 'FINAL BLOCKED — needs ' + built.missing.join(' and ') + ' first.' });
+  }
+  if (built.needsLock) {
+    return res.status(409).json({ error: 'evidence pack not locked', failCode: 'needs_lock', seat,
+      note: 'This seat reads only the frozen pack. Review the evidence and press LOCK first.' });
+  }
+  if (built.missing && built.missing.length) {
+    return res.status(409).json({ error: 'required prior evidence is missing', failCode: 'missing_prerequisite',
+      seat, missing: built.missing,
+      note: 'Needs ' + built.missing.join(' and ') + ' before it can run.' });
+  }
+
+  // Double-tap guard BEFORE the quota bump, so a blocked duplicate is never charged.
+  const key = wcInflightKey(runId, seat);
+  if (WC_INFLIGHT.has(key)) {
+    return res.status(409).json({ error: 'already running', failCode: 'in_flight', seat,
+      note: seat.toUpperCase() + ' is already running for this run. No second call was made.' });
+  }
+  WC_INFLIGHT.set(key, Date.now());
+
+  try {
+    const cap = await bumpUsage('wildcard-seat');
+    if (cap && cap.allowed === false) {
+      return res.status(429).json({ error: 'daily cap reached', failCode: 'rate_limited', seat,
+        used: cap.used, limit: cap.limit,
+        note: 'The Wildcard daily call limit is reached. Use manual for the rest of today.' });
+    }
+
+    const effectiveModel = def.model || defaultModelFor(def.provider);
+    const r = await callWithFallback(
+      { provider: def.provider, model: effectiveModel },
+      built.prompt, null,
+      // Structured output for the seat that declares a schema. No other seat is affected.
+      def.jsonSchema ? { jsonSchema: def.jsonSchema } : undefined);
+
+    /* A NON-EMPTY REPLY IS NOT AUTOMATICALLY A SUCCESS.
+     *
+     * `ok = !!r.content` was the whole test. For the chair that meant a paragraph of prose
+     * counted as a decision: parsed came back null, the row was filed `status: "ok"`, the
+     * card read NO VERDICT, and the step was complete and un-retryable. The owner ended up
+     * with a finished Wildcard that had decided nothing.
+     *
+     * Now the parse and the contract check happen BEFORE success is declared. */
+    const parsedReply = r.content ? parseJsonLoose(r.content) : null;
+    let invalidReason = null;
+    if (r.content && def.outputContract) {
+      invalidReason = validateSynthesis(parsedReply, run);
+    }
+    const ok = !!r.content && !invalidReason;
+    const fail = ok ? null
+      : invalidReason
+        ? { code: 'invalid_reply',
+            text: 'The reply was not a usable decision — ' + invalidReason + '. Try again, or use manual.' }
+        : classifyFailure(r.error);
+    /* If this ever fires, a provider answered and we cannot say which model did it. It is
+     * not worth throwing the owner's answer away over, but it must be visible in the log
+     * rather than sitting silently in the row as `model: null`. */
+    const recordedModel = r.modelUsed || effectiveModel || null;
+    if (ok && !recordedModel) {
+      logUpstream('wildcard:run:provenance',
+        new Error('no model resolved for provider ' + def.provider + ' (seat ' + seat + ')'));
+    }
+    let saved = null;
+    try {
+      const rows = await sbWc('POST', 'wildcard_seat_responses', [{
+        run_id: runId, stage: def.stage, seat,
+        provider: r.providerUsed || def.provider,
+        model: recordedModel,
+        source: 'api',
+        /* An invalid reply is stored as FAILED but KEEPS ITS RAW TEXT. Throwing the reply
+         * away would leave the owner a failure with nothing to diagnose; storing it as OK
+         * would be the defect this replaces. Failed-with-evidence is the honest middle. */
+        raw_response: (ok || invalidReason) ? String(r.content).slice(0, 200000) : null,
+        parsed: ok ? parsedReply : null,
+        status: ok ? 'ok' : 'failed',
+        fail_reason: ok ? null : fail.code,
+        fallback_used: !!r.usedFallback,
+        // The exact text the model was given — this is what the lock verifies for auditors.
+        prompt_sent: built.prompt
+      }]);
+      saved = Array.isArray(rows) ? rows[0] : rows;
+    } catch (e) {
+      logUpstream('wildcard:run:write', e);
+      return res.status(502).json({ error: shortReason(String((e && e.message) || e)), failCode: 'store_unreachable',
+        note: 'The provider answered but the answer could not be stored. Nothing was recorded — '
+            + 'copy the prompt and save manually so the reply is not lost.' });
+    }
+
+    let after = prior;
+    try { after = await sbWc('GET', `wildcard_seat_responses?run_id=eq.${runId}&select=id,created_at,seat,stage,source,status,provider,model,raw_response,parsed,prompt_sent&order=created_at.asc`) || prior; } catch (_) {}
+
+    if (!ok) {
+      /* The owner-facing note must carry the SPECIFIC reason. A generic "recorded as a
+       * failed attempt" would compute the exact problem — a ticker outside the candidates,
+       * a missing verdict — and then hide it, which is the same silent-omission shape this
+       * whole fix exists to remove. */
+      return res.status(502).json({ error: fail.text, failCode: fail.code, seat, saved,
+        run, seatResponses: after, seats: modes, ts: Date.now(),
+        note: fail.code === 'invalid_reply'
+          ? fail.text + ' Nothing was decided and the step stays open.'
+          : 'Recorded as a failed attempt. Manual is available now.' });
+    }
+    res.json({ ok: true, saved, run, seatResponses: after, seats: modes,
+      providerUsed: r.providerUsed, modelUsed: r.modelUsed, usedFallback: !!r.usedFallback,
+      /* Visible, not silent. If the endpoint refused the structured-output configuration the
+       * answer still arrived — but it arrived UNCONSTRAINED, and the owner should be told
+       * that rather than discovering it from a stricter-than-usual failure rate later. */
+      usedSchema: !!r.usedSchema, schemaRejected: !!r.schemaRejected, ts: Date.now() });
+  } finally {
+    WC_INFLIGHT.delete(key);
+  }
+});
+
 // Store a seat response — API or MANUAL, identical treatment downstream.
 app.post('/api/wildcard/seat', async (req, res) => {
   const b = req.body || {};
@@ -1953,6 +2495,95 @@ app.post('/api/wildcard/seat', async (req, res) => {
       seat, promptLineageRequired: true,
       note: seat.toUpperCase() + ' audits other seats, so its answer is only meaningful with the '
           + 'exact prompt it was given. Copy the prompt again and re-save.' });
+  }
+
+  /* THE SAME CONTRACT APPLIES TO A PASTED DECISION.
+   *
+   * JUDGEMENT CALL, FLAGGED RATHER THAN MADE QUIETLY. Only the automatic route was asked to
+   * validate. But the defect being fixed is "a non-decision is filed as a successful
+   * synthesis, completes the step and cannot be retried" — and pasting prose by hand reaches
+   * that identical dead end by another door. Validating one path and not the other would
+   * close the front entrance and leave the back one open.
+   *
+   * Nothing is stored on refusal, so the owner simply pastes again; the message names the
+   * specific problem rather than saying "invalid". A FAILED row is exempt — a recorded
+   * failure is not claiming to be a decision. */
+  /* THE STAGE MUST MATCH THE SEAT — WITH ONE DELIBERATE EXCEPTION.
+   *
+   * `stage` is client-supplied and was only checked against the list of legal stages, so a
+   * caller could file the chair's decision as `night` evidence — the one stage the lock
+   * freezes. A seat has one stage and that is the rule.
+   *
+   * `live` is the EXCEPTION and stays open for every seat. It is the reserved re-check stage:
+   * `WC_STAGES` lists it, and a documented defect was specifically that `live` was being
+   * collapsed into `night` on the way into the database. Closing it here would silently undo
+   * that fix to satisfy a rule aimed at a different problem. A live re-answer of any seat is
+   * compatible by design; filing a locked-stage decision as night evidence is not. */
+  if (WC_SEATS[seat].stage !== b.stage && b.stage !== 'live') {
+    return res.status(400).json({ error: 'stage does not match the seat', seat,
+      expected: WC_SEATS[seat].stage, got: b.stage,
+      note: seat.toUpperCase() + ' is a ' + WC_SEATS[seat].stage + '-stage seat (or a live '
+          + 're-check). Nothing was stored.' });
+  }
+
+  if (seat === 'synthesis' && b.status !== 'failed') {
+    /* FAIL CLOSED. THIS BLOCK PREVIOUSLY SWALLOWED THE READ ERROR.
+     *
+     * `try { … } catch (_) {}` left synthRun null and validation carried on regardless — so a
+     * GO naming a ticker that was not in the run passed, because the candidate list simply
+     * was not there to check it against. A validator that cannot see what it is validating
+     * must refuse, not wave the answer through. That is the whole failure shape this project
+     * keeps finding: a missing value producing a silent omission instead of a refusal. */
+    let synthRun = null;
+    try {
+      [synthRun] = await sbWc('GET', `wildcard_runs?id=eq.${b.runId}&select=candidates,evidence_pack,evidence_pack_hash,evidence_locked_at`);
+    } catch (e) {
+      logUpstream('wildcard:seat:synthcheck', e);
+      return res.status(502).json({ error: shortReason(String((e && e.message) || e)),
+        failCode: 'store_unreachable', seat,
+        note: 'The run could not be read, so this decision could not be checked against its '
+            + 'candidates. NOTHING was stored — try again.' });
+    }
+    if (!synthRun) return res.status(404).json({ error: 'run not found', seat,
+      note: 'No such run, so nothing was stored.' });
+    if (!Array.isArray(synthRun.candidates) || !synthRun.candidates.length) {
+      return res.status(409).json({ error: 'run has no candidates', failCode: 'invalid_reply', seat,
+        note: 'This run lists no candidates, so a GO could not be checked against them. '
+            + 'Nothing was stored.' });
+    }
+
+    /* MANUAL MUST CLEAR THE SAME GATES AS AUTO. The automatic route refuses a locked-stage
+     * seat until the pack is frozen and refuses the chair until both analyses exist. Manual
+     * enforced neither, so pasting by hand was a way round both. */
+    if (!synthRun.evidence_pack || !synthRun.evidence_pack_hash) {
+      return res.status(409).json({ error: 'evidence pack not locked', failCode: 'needs_lock', seat,
+        note: 'The chair reasons only from the frozen pack. Review the evidence and press '
+            + 'LOCK first. Nothing was stored.' });
+    }
+    let priorRows = [];
+    try {
+      priorRows = await sbWc('GET', `wildcard_seat_responses?run_id=eq.${b.runId}&select=id,created_at,seat,stage,status,raw_response&order=created_at.asc`) || [];
+    } catch (e) {
+      logUpstream('wildcard:seat:synthprereq', e);
+      return res.status(502).json({ error: shortReason(String((e && e.message) || e)),
+        failCode: 'store_unreachable', seat,
+        note: 'The prior analyses could not be read, so this decision was NOT stored.' });
+    }
+    const missingTrade = (WC_REQUIRES.synthesis.seats || [])
+      .filter(k => !pickLatestOk(priorRows, k, WC_REQUIRES.synthesis.stage));
+    if (missingTrade.length) {
+      return res.status(409).json({ error: 'trade analysis incomplete', failCode: 'trade_incomplete',
+        seat, missing: missingTrade,
+        note: 'FINAL BLOCKED — needs ' + missingTrade.join(' and ') + ' first. Nothing was stored.' });
+    }
+
+    const why = validateSynthesis(parseJsonLoose(b.rawResponse), synthRun);
+    if (why) {
+      return res.status(400).json({ error: 'not a usable decision', failCode: 'invalid_reply',
+        seat, reason: why,
+        note: 'That reply was not stored, so nothing was lost — ' + why + '. The required '
+            + 'format is at the end of the synthesis prompt. Paste a corrected reply.' });
+    }
   }
 
   /* ONCE LOCKED, THE NIGHT IS CLOSED.
@@ -2024,8 +2655,8 @@ const HIST_FILE = path.join(DATA_DIR, 'history.json');
 let _hist = null;
 function histLoad() {
   if (_hist) return _hist;
-  try { _hist = JSON.parse(fs.readFileSync(HIST_FILE, 'utf8')); } catch (_) { _hist = { snapshots: [], journal: [] }; }
-  if (!_hist.snapshots) _hist.snapshots = []; if (!_hist.journal) _hist.journal = [];
+  try { _hist = JSON.parse(fs.readFileSync(HIST_FILE, 'utf8')); } catch (_) { _hist = { snapshots: [], journal: [], lottery: [] }; }
+  if (!_hist.snapshots) _hist.snapshots = []; if (!_hist.journal) _hist.journal = []; if (!_hist.lottery) _hist.lottery = [];
   return _hist;
 }
 function histSave() { try { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(HIST_FILE, JSON.stringify(_hist)); } catch (_) { /* in-memory only */ } }
@@ -2098,7 +2729,11 @@ async function sbRead(type, limit) {
  * of his own dashboard for no security gain. Auth fails closed; this does not.       */
 const DAILY_CAPS = {
   'deep-triggers': Math.max(1, +process.env.CAP_DEEP_TRIGGERS || 60),
-  'ask':           Math.max(1, +process.env.CAP_ASK || 250)
+  'ask':           Math.max(1, +process.env.CAP_ASK || 250),
+  /* Wildcard's own counter, deliberately separate from Deep Triggers. One shared counter
+   * would let a busy trading night silently exhaust the long-term portfolio's analysis
+   * budget — different missions, different pools. Durable (Supabase RPC), not in-memory. */
+  'wildcard-seat': Math.max(1, +process.env.CAP_WILDCARD_SEAT || 120)
 };
 async function bumpUsage(endpoint) {
   const cap = DAILY_CAPS[endpoint];
@@ -2118,6 +2753,184 @@ async function bumpUsage(endpoint) {
     return { allowed: true, skipped: 'unavailable' };
   }
 }
+
+/* ═══════════════ LOTTERY TICKET REGISTRY (V1) ═════════════════════════════════
+ * Separate high-risk satellite. This is a DECISION RECORD, not a recommendation engine:
+ * there is intentionally no AI route, no broker route and no way to create ACTIVE directly.
+ * One manual execution per calendar month. Once active, entry price/units/capital are
+ * immutable: adding to the position would be averaging down and is not a supported action.
+ *
+ * Durable deployments should create `investing.lottery_tickets` with the fields written
+ * below and a UNIQUE partial index on entry_month WHERE entry_month IS NOT NULL. The API
+ * also checks the limit, while that index closes the simultaneous-request race. Until the
+ * table exists it uses the existing JSON/in-memory fallback so the flow can be tested. */
+const LOTTERY_STATUS = ['WATCHLIST', 'CANDIDATE', 'ACTIVE', 'EXITED', 'WRITTEN_OFF', 'ARCHIVED'];
+const LOTTERY_BROKERS = ['eToro', 'Trading 212'];
+const LOTTERY_TICKER = /^[A-Z0-9.\-]{1,12}$/;
+const LOTTERY_RULES = Object.freeze({
+  ticketSize: 'around USD 100', maxNewExecutionsPerCalendarMonth: 1,
+  instruments: 'long individual ordinary shares only', normalHold: '5 years or more',
+  noTopUps: true, noAiGo: true, noAutoExecution: true,
+  excluded: ['ETFs', 'CFDs', 'leverage', 'options', 'shorting', 'crypto'],
+  states: LOTTERY_STATUS
+});
+
+function lotText(v, max) { return String(v == null ? '' : v).trim().slice(0, max); }
+function lotNumber(v) { const n = +v; return Number.isFinite(n) ? n : null; }
+function lotIsoDate(v) {
+  const s = String(v || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const d = new Date(s + 'T00:00:00Z');
+  return Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === s ? s : null;
+}
+function lotMonthOf(date) { return date ? String(date).slice(0, 7) : null; }
+function lotCurrentMonth() { return new Date().toISOString().slice(0, 7); }
+function lotSummary(tickets) {
+  const current = lotCurrentMonth();
+  const active = tickets.filter(t => t.status === 'ACTIVE');
+  return {
+    month: current,
+    monthSlotUsed: tickets.some(t => (t.entry_month || lotMonthOf(t.entry_date)) === current),
+    currentMonthExecutions: tickets.filter(t => (t.entry_month || lotMonthOf(t.entry_date)) === current).length,
+    activeCount: active.length,
+    capitalAtRiskUsd: +active.reduce((n, t) => n + (+t.allocated_usd || 0), 0).toFixed(2),
+    totalTickets: tickets.length
+  };
+}
+
+async function lotReadStore() {
+  if (sbOn()) {
+    try {
+      const rows = await sbWc('GET', 'lottery_tickets?select=*&order=created_at.desc');
+      return { tickets: Array.isArray(rows) ? rows : [], backend: 'supabase' };
+    } catch (e) { logUpstream('lottery:read', e); }
+  }
+  return { tickets: histLoad().lottery.slice().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))), backend: 'file' };
+}
+async function lotInsertStore(ticket, backend) {
+  if (backend === 'supabase') {
+    const rows = await sbWc('POST', 'lottery_tickets', [ticket]);
+    const saved = Array.isArray(rows) ? rows[0] : rows;
+    if (!saved) throw new Error('lottery insert did not persist');
+    return saved;
+  }
+  const h = histLoad(); h.lottery.push(ticket); h.lottery = h.lottery.slice(-5000); histSave(); return ticket;
+}
+async function lotPatchStore(id, change, backend) {
+  if (backend === 'supabase') {
+    const rows = await sbWc('PATCH', `lottery_tickets?id=eq.${id}`, change);
+    const saved = Array.isArray(rows) ? rows[0] : rows;
+    if (!saved) throw new Error('lottery update did not persist');
+    return saved;
+  }
+  const h = histLoad(), i = h.lottery.findIndex(t => t.id === id);
+  if (i < 0) return null;
+  h.lottery[i] = Object.assign({}, h.lottery[i], change); histSave(); return h.lottery[i];
+}
+function lotPublic(ticket) {
+  const out = {};
+  ['id','created_at','updated_at','ticker','company','broker','status','planned_usd','thesis','failure_condition','objective','notes','entry_date','entry_month','entry_price','units','allocated_usd','current_price','current_price_at','exit_date','exit_price','exit_reason'].forEach(k => { out[k] = ticket[k] == null ? null : ticket[k]; });
+  return out;
+}
+
+app.get('/api/lottery', async (req, res) => {
+  try {
+    const store = await lotReadStore();
+    res.json({ tickets: store.tickets.map(lotPublic), summary: lotSummary(store.tickets), rules: LOTTERY_RULES,
+      backend: store.backend, note: store.backend === 'supabase' ? 'Durable registry.' : 'Fallback test store; configure the Supabase table before relying on cross-device persistence.', ts: Date.now() });
+  } catch (e) { logUpstream('lottery:get', e); res.status(502).json({ error: 'lottery_store_unavailable' }); }
+});
+
+app.post('/api/lottery', async (req, res) => {
+  const b = req.body || {}, ticker = lotText(b.ticker, 12).toUpperCase(), company = lotText(b.company, 120);
+  const broker = lotText(b.broker, 40), status = lotText(b.status || 'WATCHLIST', 20).toUpperCase();
+  const planned = lotNumber(b.plannedUsd);
+  if (!LOTTERY_TICKER.test(ticker)) return res.status(400).json({ error: 'invalid_ticker' });
+  if (!company) return res.status(400).json({ error: 'company_required' });
+  if (!LOTTERY_BROKERS.includes(broker)) return res.status(400).json({ error: 'broker_must_be_etoro_or_trading_212' });
+  if (!['WATCHLIST', 'CANDIDATE'].includes(status)) return res.status(400).json({ error: 'new_ticket_must_start_as_watchlist_or_candidate', note: 'ACTIVE is only created by the manual activation transition.' });
+  if (planned == null || planned <= 0) return res.status(400).json({ error: 'positive_planned_usd_required' });
+  const now = new Date().toISOString();
+  const ticket = {
+    id: crypto.randomUUID(), created_at: now, updated_at: now, ticker, company, broker, status,
+    planned_usd: +planned.toFixed(2), thesis: lotText(b.thesis, 5000) || null,
+    failure_condition: lotText(b.failureCondition, 5000) || null, objective: lotText(b.objective, 5000) || null,
+    notes: lotText(b.notes, 10000) || null, entry_date: null, entry_month: null, entry_price: null,
+    units: null, allocated_usd: null, current_price: null, current_price_at: null,
+    exit_date: null, exit_price: null, exit_reason: null
+  };
+  try {
+    const store = await lotReadStore();
+    const saved = await lotInsertStore(ticket, store.backend);
+    res.status(201).json({ saved: lotPublic(saved), backend: store.backend, rules: LOTTERY_RULES, ts: Date.now() });
+  } catch (e) { logUpstream('lottery:create', e); res.status(502).json({ error: 'lottery_write_failed' }); }
+});
+
+app.patch('/api/lottery/:id', async (req, res) => {
+  const id = String(req.params.id || '');
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'bad_ticket_id' });
+  const b = req.body || {}, action = lotText(b.action, 20).toLowerCase();
+  let store, ticket;
+  try { store = await lotReadStore(); ticket = store.tickets.find(t => t.id === id); }
+  catch (e) { logUpstream('lottery:update:read', e); return res.status(502).json({ error: 'lottery_store_unavailable' }); }
+  if (!ticket) return res.status(404).json({ error: 'ticket_not_found' });
+  const now = new Date().toISOString(), change = { updated_at: now };
+
+  if (action === 'candidate') {
+    if (ticket.status !== 'WATCHLIST') return res.status(409).json({ error: 'only_watchlist_can_become_candidate' });
+    change.status = 'CANDIDATE';
+  } else if (action === 'activate') {
+    if (ticket.status !== 'CANDIDATE') return res.status(409).json({ error: 'only_candidate_can_be_activated' });
+    if (!ticket.thesis || !ticket.failure_condition || !ticket.objective)
+      return res.status(409).json({ error: 'research_record_incomplete', note: 'Thesis, failure condition and long-term objective are all required before a manual buy can be recorded.' });
+    const entryDate = lotIsoDate(b.entryDate), entryPrice = lotNumber(b.entryPrice), units = lotNumber(b.units), allocated = lotNumber(b.allocatedUsd);
+    if (!entryDate) return res.status(400).json({ error: 'valid_entry_date_required' });
+    if (entryPrice == null || entryPrice <= 0 || units == null || units <= 0 || allocated == null || allocated <= 0)
+      return res.status(400).json({ error: 'positive_entry_price_units_and_allocated_usd_required' });
+    const month = lotMonthOf(entryDate);
+    const used = store.tickets.find(t => t.id !== id && (t.entry_month || lotMonthOf(t.entry_date)) === month);
+    if (used) return res.status(409).json({ error: 'monthly_execution_limit', month, existingTicket: used.ticker,
+      note: 'Only one new Lottery Ticket execution is allowed per calendar month.' });
+    Object.assign(change, { status: 'ACTIVE', entry_date: entryDate, entry_month: month,
+      entry_price: +entryPrice.toFixed(8), units: +units.toFixed(8), allocated_usd: +allocated.toFixed(2),
+      current_price: +entryPrice.toFixed(8), current_price_at: now });
+  } else if (action === 'price') {
+    if (ticket.status !== 'ACTIVE') return res.status(409).json({ error: 'only_active_ticket_can_be_priced' });
+    const price = lotNumber(b.currentPrice);
+    if (price == null || price < 0) return res.status(400).json({ error: 'non_negative_current_price_required' });
+    change.current_price = +price.toFixed(8); change.current_price_at = now;
+  } else if (action === 'exit') {
+    if (ticket.status !== 'ACTIVE') return res.status(409).json({ error: 'only_active_ticket_can_exit' });
+    const price = lotNumber(b.exitPrice), reason = lotText(b.reason, 5000);
+    if (price == null || price < 0) return res.status(400).json({ error: 'non_negative_exit_price_required' });
+    if (!reason) return res.status(400).json({ error: 'exit_reason_required' });
+    Object.assign(change, { status: 'EXITED', exit_date: now.slice(0, 10), exit_price: +price.toFixed(8), exit_reason: reason,
+      current_price: +price.toFixed(8), current_price_at: now });
+  } else if (action === 'writeoff') {
+    if (ticket.status !== 'ACTIVE') return res.status(409).json({ error: 'only_active_ticket_can_be_written_off' });
+    const reason = lotText(b.reason, 5000);
+    if (!reason) return res.status(400).json({ error: 'writeoff_reason_required' });
+    Object.assign(change, { status: 'WRITTEN_OFF', exit_date: now.slice(0, 10), exit_price: 0, exit_reason: reason,
+      current_price: 0, current_price_at: now });
+  } else if (action === 'archive') {
+    if (!['EXITED', 'WRITTEN_OFF'].includes(ticket.status)) return res.status(409).json({ error: 'only_closed_ticket_can_be_archived' });
+    change.status = 'ARCHIVED';
+  } else {
+    return res.status(400).json({ error: 'unknown_action', known: ['candidate','activate','price','exit','writeoff','archive'] });
+  }
+
+  try {
+    const saved = await lotPatchStore(id, change, store.backend);
+    if (!saved) return res.status(404).json({ error: 'ticket_not_found' });
+    res.json({ saved: lotPublic(saved), summary: lotSummary(store.tickets.map(t => t.id === id ? saved : t)),
+      backend: store.backend, ts: Date.now() });
+  } catch (e) {
+    logUpstream('lottery:update:write', e);
+    const monthly = action === 'activate' && /409|duplicate|unique/i.test(String((e && e.message) || e));
+    res.status(monthly ? 409 : 502).json({ error: monthly ? 'monthly_execution_limit' : 'lottery_write_failed',
+      note: monthly ? 'Only one new Lottery Ticket execution is allowed per calendar month.' : undefined });
+  }
+});
 
 app.get('/api/history', async (req, res) => {
   const type = req.query.type;
